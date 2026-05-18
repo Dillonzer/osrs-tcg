@@ -615,7 +615,7 @@ public class PackRevealService
 		return -1;
 	}
 
-	/** DEBUG_CARD_EDIT: refresh roll-pool / tier index after catalog reload. */
+	/** Refreshes roll-pool / tier index after a developer workspace catalog reload. */
 	public synchronized void refreshAfterCatalogReload()
 	{
 		rebuildRarityTierIndex();

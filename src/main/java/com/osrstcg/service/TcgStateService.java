@@ -18,8 +18,10 @@ import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.extern.slf4j.Slf4j;
 
 @Singleton
+@Slf4j
 public class TcgStateService
 {
 	private final TcgStateStore stateStore;
@@ -38,17 +40,29 @@ public class TcgStateService
 		this.state = initialState == null ? TcgState.empty() : initialState;
 	}
 
-	public synchronized void load()
+	/**
+	 * Loads persisted state for the current RS profile.
+	 *
+	 * @return {@code true} if the saved profile had debug mode enabled and was fully reset (empty collection/economy)
+	 */
+	public synchronized boolean load()
 	{
 		if (stateStore == null)
 		{
-			return;
+			return false;
 		}
 		state = stateStore.load();
+		if (state.isDebugLogging())
+		{
+			log.info("OSRS TCG: loaded profile had debug mode enabled; resetting collection and economy.");
+			resetAll();
+			return true;
+		}
 		if (stripDebugProvenanceRowsIfDebugDisabled())
 		{
 			save();
 		}
+		return false;
 	}
 
 	public synchronized void save()

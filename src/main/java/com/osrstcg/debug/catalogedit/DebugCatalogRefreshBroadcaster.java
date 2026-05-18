@@ -7,8 +7,7 @@ import javax.inject.Singleton;
 import javax.swing.SwingUtilities;
 
 /**
- * DEBUG_CARD_EDIT: breaks Guice cycles by notifying catalog consumers without injecting them into
- * {@link DebugCatalogReloader}. Delete with the debug card editor package.
+ * Notifies UI layers to refresh after a workspace {@code Card.json} edit without creating Guice dependency cycles.
  */
 @Singleton
 public final class DebugCatalogRefreshBroadcaster

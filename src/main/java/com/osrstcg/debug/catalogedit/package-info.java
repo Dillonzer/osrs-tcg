@@ -1,11 +1,7 @@
 /**
- * TEMPORARY debug tooling: edit {@code Card.json} from the collection album while debug mode is on.
+ * Developer-only catalog editing: right-click cards in the collection album to edit or delete rows in
+ * workspace {@code Card.json}, then reload the in-memory catalog.
  * <p>
- * To remove this feature entirely:
- * <ol>
- *   <li>Delete the {@code com.osrstcg.debug.catalogedit} package.</li>
- *   <li>Search the codebase for {@code DEBUG_CARD_EDIT} and remove every marked hook.</li>
- *   <li>Remove {@link com.osrstcg.data.CardDatabase#forceReloadForDebug} if nothing else uses it.</li>
- * </ol>
+ * Active only when the RuneLite client is started with developer mode and the plugin's debug mode is enabled.
  */
 package com.osrstcg.debug.catalogedit;

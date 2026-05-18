@@ -3,6 +3,7 @@ package com.osrstcg.ui.collectionalbum;
 import com.osrstcg.data.CardDatabase;
 import com.osrstcg.data.PackCatalog;
 import com.osrstcg.debug.catalogedit.DebugCardCatalogEditFacade;
+import com.osrstcg.debug.catalogedit.DebugCardEditGate;
 import com.osrstcg.debug.catalogedit.DebugCatalogRefreshBroadcaster;
 import com.osrstcg.service.CardPartyTransferService;
 import com.osrstcg.service.TcgStateService;
@@ -22,6 +23,7 @@ public final class CollectionAlbumManager
 	private final PartyService partyService;
 	private final CardPartyTransferService cardPartyTransferService;
 	private final DebugCardCatalogEditFacade debugCardCatalogEditFacade;
+	private final DebugCardEditGate debugCardEditGate;
 
 	private volatile CollectionAlbumWindow window;
 
@@ -34,6 +36,7 @@ public final class CollectionAlbumManager
 		PartyService partyService,
 		CardPartyTransferService cardPartyTransferService,
 		DebugCardCatalogEditFacade debugCardCatalogEditFacade,
+		DebugCardEditGate debugCardEditGate,
 		DebugCatalogRefreshBroadcaster debugCatalogRefreshBroadcaster)
 	{
 		this.cardDatabase = cardDatabase;
@@ -43,7 +46,7 @@ public final class CollectionAlbumManager
 		this.partyService = partyService;
 		this.cardPartyTransferService = cardPartyTransferService;
 		this.debugCardCatalogEditFacade = debugCardCatalogEditFacade;
-		// DEBUG_CARD_EDIT: register without pulling this manager into DebugCatalogReloader (avoids Guice cycle).
+		this.debugCardEditGate = debugCardEditGate;
 		debugCatalogRefreshBroadcaster.register(this::refreshAfterCatalogReload);
 	}
 
@@ -55,7 +58,7 @@ public final class CollectionAlbumManager
 			{
 				window = new CollectionAlbumWindow(
 					cardDatabase, stateService, packCatalog, imageCacheService, partyService,
-					cardPartyTransferService, debugCardCatalogEditFacade);
+					cardPartyTransferService, debugCardCatalogEditFacade, debugCardEditGate);
 			}
 			window.refreshData();
 			window.prepareToShow();
@@ -76,7 +79,7 @@ public final class CollectionAlbumManager
 		});
 	}
 
-	/** DEBUG_CARD_EDIT: full catalog refresh (tabs, rarity table, grid) after Card.json edit. */
+	/** Full album refresh (tabs, rarity table, grid) after a developer workspace catalog reload. */
 	public void refreshAfterCatalogReload()
 	{
 		SwingUtilities.invokeLater(() ->

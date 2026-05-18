@@ -5,6 +5,7 @@ import com.osrstcg.data.CardDatabase;
 import com.osrstcg.data.CardDefinition;
 import com.osrstcg.data.PackCatalog;
 import com.osrstcg.debug.catalogedit.DebugCardCatalogEditFacade;
+import com.osrstcg.debug.catalogedit.DebugCardEditGate;
 import com.osrstcg.model.CardCollectionKey;
 import com.osrstcg.model.OwnedCardInstance;
 import com.osrstcg.model.TcgState;
@@ -98,6 +99,7 @@ public final class CollectionAlbumWindow extends JFrame
 	private final WikiImageCacheService imageCacheService;
 	private final PartyService partyService;
 	private final CardPartyTransferService cardPartyTransferService;
+	private final DebugCardEditGate debugCardEditGate;
 
 	private final List<Long> partyMemberIds = new ArrayList<>();
 	private final JComboBox<String> partyMemberCombo = new JComboBox<>();
@@ -159,7 +161,8 @@ public final class CollectionAlbumWindow extends JFrame
 		WikiImageCacheService imageCacheService,
 		PartyService partyService,
 		CardPartyTransferService cardPartyTransferService,
-		DebugCardCatalogEditFacade debugCardCatalogEditFacade)
+		DebugCardCatalogEditFacade debugCardCatalogEditFacade,
+		DebugCardEditGate debugCardEditGate)
 	{
 		super("OSRS TCG — Collection album");
 		if (WINDOW_ICON != null)
@@ -172,7 +175,7 @@ public final class CollectionAlbumWindow extends JFrame
 		this.imageCacheService = imageCacheService;
 		this.partyService = partyService;
 		this.cardPartyTransferService = cardPartyTransferService;
-		// DEBUG_CARD_EDIT: pass facade into grid for right-click catalog editor.
+		this.debugCardEditGate = debugCardEditGate;
 		this.grid = new CollectionAlbumGridPanel(imageCacheService, debugCardCatalogEditFacade,
 			this::onOwnedMultiCopyAlbumPress, this::onSlotSelectionChanged);
 		this.variantsPanel = new CollectionAlbumVariantsPanel(imageCacheService, this::onVariantInstancePicked);
@@ -540,7 +543,7 @@ public final class CollectionAlbumWindow extends JFrame
 
 	private void tryDebugQuickSellFromKeyboard()
 	{
-		if (!stateService.isDebugLogging())
+		if (!debugCardEditGate.isEnabled())
 		{
 			return;
 		}
@@ -1159,7 +1162,7 @@ public final class CollectionAlbumWindow extends JFrame
 		long sellValue = sellCreditsForChosenInstance();
 		sellCardBtn.setText("Sell for " + NumberFormatting.format(sellValue));
 		sellCardBtn.setEnabled(true);
-		if (stateService.isDebugLogging())
+		if (debugCardEditGate.isEnabled())
 		{
 			sellCardBtn.setToolTipText("Sell selected copy (press Delete)");
 		}
@@ -1218,7 +1221,7 @@ public final class CollectionAlbumWindow extends JFrame
 		{
 			return;
 		}
-		boolean skipOnlyCopyConfirm = debugQuickSell && stateService.isDebugLogging();
+		boolean skipOnlyCopyConfirm = debugQuickSell && debugCardEditGate.isEnabled();
 		if (!skipOnlyCopyConfirm && isOnlyOwnedCopy(sendChosenInstanceId))
 		{
 			String cardName = displayNameForInstance(sendChosenInstanceId);

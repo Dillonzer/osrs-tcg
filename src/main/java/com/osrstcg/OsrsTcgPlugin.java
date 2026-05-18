@@ -156,8 +156,7 @@ public class OsrsTcgPlugin extends Plugin
 	{
 		cardDatabase.load();
 		packCatalog.load();
-		stateService.load();
-		creditAwardService.resetExperienceCreditBaseline();
+		applyLoadedProfileState(stateService.load());
 		log.info("OSRS TCG plugin started. Credits={}, ownedCards={}, cardDefinitions={}",
 			NumberFormatting.format(stateService.getState().getEconomyState().getCredits()),
 			NumberFormatting.format(stateService.getState().getCollectionState().getOwnedCards().size()),
@@ -171,9 +170,6 @@ public class OsrsTcgPlugin extends Plugin
 			.build();
 		clientToolbar.addNavigation(navigationButton);
 		overlayManager.add(packRevealOverlay);
-		// Append (no index): Stretched Mode registers TranslateMouseListener at 0 — if we also used 0, whichever
-		// plugin starts last runs first and can receive unstretched coordinates while the overlay uses game canvas space.
-		// See runelite stretchedmode TranslateMouseListener / StretchedModePlugin.
 		mouseManager.registerMouseListener(packRevealInputListener);
 		mouseManager.registerMouseWheelListener(packRevealInputListener);
 		keyManager.registerKeyListener(packRevealInputListener);
@@ -332,10 +328,31 @@ public class OsrsTcgPlugin extends Plugin
 	@Subscribe
 	public void onRuneScapeProfileChanged(RuneScapeProfileChanged event)
 	{
-		stateService.load();
+		applyLoadedProfileState(stateService.load());
+	}
+
+	/** After {@link TcgStateService#load()} on login / profile switch; clears UI when debug-tainted saves are reset. */
+	private void applyLoadedProfileState(boolean resetBecauseDebugOnLoad)
+	{
 		creditAwardService.resetExperienceCreditBaseline();
-		tcgPanel.syncRewardDraftFromPersistent();
-		tcgPanel.refresh();
+		if (resetBecauseDebugOnLoad)
+		{
+			packRevealService.reset();
+			tcgPanel.clearPackRevealSidebarFreeze();
+			tcgPanel.syncRewardDraftFromPersistent();
+			tcgPanel.resetSessionUi();
+			if (client != null)
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+					"[OSRS TCG] This profile was saved with debug mode on; collection and credits were reset.",
+					null);
+			}
+		}
+		else
+		{
+			tcgPanel.syncRewardDraftFromPersistent();
+			tcgPanel.refresh();
+		}
 	}
 
 	@Subscribe

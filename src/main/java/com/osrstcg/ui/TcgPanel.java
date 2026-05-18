@@ -186,7 +186,6 @@ public class TcgPanel extends PluginPanel
 		this.collectionAlbumManager = collectionAlbumManager;
 		this.creditAwardService = creditAwardService;
 		this.sellDuplicatesButton = createSellDuplicatesButton();
-		// DEBUG_CARD_EDIT: register without pulling TcgPanel into DebugCatalogReloader (avoids Guice cycle).
 		debugCatalogRefreshBroadcaster.register(this::refreshAfterCatalogReload);
 
 		setLayout(new BorderLayout());
@@ -255,7 +254,7 @@ public class TcgPanel extends PluginPanel
 		panelVisible = isShowing();
 	}
 
-	/** DEBUG_CARD_EDIT: refresh sidebar rarity index after catalog reload. */
+	/** Refreshes sidebar rarity index after a developer workspace catalog reload. */
 	public void refreshAfterCatalogReload()
 	{
 		rebuildRarityColorMap();

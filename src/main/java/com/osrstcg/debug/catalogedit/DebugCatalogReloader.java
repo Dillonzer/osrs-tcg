@@ -41,7 +41,7 @@ final class DebugCatalogReloader
 		Optional<Path> workspace = paths.resolveWorkspaceCardJson();
 		cardDatabase.forceReloadForDebug(workspace.orElse(null));
 		int count = cardDatabase.size();
-		log.info("DEBUG_CARD_EDIT: reloaded card catalog ({} cards, source={})",
+		log.info("Reloaded card catalog after workspace edit ({} cards, source={})",
 			count, workspace.map(Path::toString).orElse("classpath"));
 
 		packRevealService.refreshAfterCatalogReload();

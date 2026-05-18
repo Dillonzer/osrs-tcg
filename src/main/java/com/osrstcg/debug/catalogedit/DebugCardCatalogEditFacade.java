@@ -16,10 +16,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * DEBUG_CARD_EDIT entry point for album interactions. Delete this class with the rest of
- * {@code com.osrstcg.debug.catalogedit} when removing the feature.
- */
+/** Album right-click menu to edit or delete catalog entries in workspace {@code Card.json}. */
 @Singleton
 @Slf4j
 public final class DebugCardCatalogEditFacade
@@ -105,7 +102,7 @@ public final class DebugCardCatalogEditFacade
 			}
 			catch (Exception ex)
 			{
-				log.warn("DEBUG_CARD_EDIT: failed opening editor for {}", card.getName(), ex);
+				log.warn("Failed opening catalog editor for {}", card.getName(), ex);
 				JOptionPane.showMessageDialog(parent,
 					DebugCardJsonFileStore.readErrorMessage(ex),
 					"DEBUG card editor",
@@ -133,7 +130,7 @@ public final class DebugCardCatalogEditFacade
 		}
 		catch (Exception ex)
 		{
-			log.warn("DEBUG_CARD_EDIT: failed deleting {}", cardName, ex);
+			log.warn("Failed deleting card from catalog: {}", cardName, ex);
 			JOptionPane.showMessageDialog(parent,
 				DebugCardJsonFileStore.readErrorMessage(ex),
 				"Delete card",

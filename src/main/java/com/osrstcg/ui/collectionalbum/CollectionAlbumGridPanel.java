@@ -94,7 +94,6 @@ final class CollectionAlbumGridPanel extends JPanel
 		return slots.get(selectedIndex);
 	}
 
-	// DEBUG_CARD_EDIT: right-click catalog editor (remove with debug.catalogedit package).
 	private boolean tryDebugContextMenu(MouseEvent e)
 	{
 		if (e == null || !e.isPopupTrigger() || debugCardCatalogEditFacade == null)

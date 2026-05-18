@@ -60,8 +60,8 @@ public class CardDatabase
 	}
 
 	/**
-	 * DEBUG_CARD_EDIT: Forces a full catalog reload. When {@code workspaceCardJson} exists on disk, reads that file;
-	 * otherwise falls back to the bundled classpath resource. Remove with the debug card editor package.
+	 * Reloads the catalog from workspace {@code Card.json} when that file exists (developer catalog editor);
+	 * otherwise falls back to the bundled classpath resource.
 	 */
 	public synchronized void forceReloadForDebug(Path workspaceCardJson)
 	{
@@ -72,11 +72,11 @@ public class CardDatabase
 			try (Reader reader = Files.newBufferedReader(workspaceCardJson, StandardCharsets.UTF_8))
 			{
 				loadedCards = normalize(parse(reader));
-				log.info("DEBUG_CARD_EDIT: Loaded {} cards from {}", loadedCards.size(), workspaceCardJson);
+				log.info("Loaded {} cards from workspace {}", loadedCards.size(), workspaceCardJson);
 			}
 			catch (IOException | JsonSyntaxException ex)
 			{
-				log.warn("DEBUG_CARD_EDIT: Failed reading workspace Card.json, using classpath", ex);
+				log.warn("Failed reading workspace Card.json, using classpath", ex);
 				loadedCards = loadFromClasspath();
 			}
 		}
