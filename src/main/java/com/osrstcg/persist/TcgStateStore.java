@@ -29,6 +29,8 @@ public class TcgStateStore
 
 	public TcgState load()
 	{
+		moveOldState();
+
 		LoadAttempt primary = tryLoad(STATE_KEY, STATE_HASH_KEY);
 		if (primary.outcome == LoadOutcome.SUCCESS)
 		{
@@ -149,25 +151,68 @@ public class TcgStateStore
 
 	void writeProfileScoped(String key, String value)
 	{
-		String profileKey = configManager.getRSProfileKey();
-		if (profileKey == null || profileKey.isEmpty())
-		{
-			configManager.setConfiguration(GROUP, key, value);
-		}
-		else
-		{
-			configManager.setConfiguration(GROUP, profileKey, key, value);
-		}
+		configManager.setRSProfileConfiguration(GROUP, key, value);
 	}
 
 	String getProfileScoped(String key)
 	{
-		String profileKey = configManager.getRSProfileKey();
-		if (profileKey == null || profileKey.isEmpty())
+		return configManager.getRSProfileConfiguration(GROUP, key);
+	}
+
+	void moveOldState()
+	{
+		String currentState = configManager.getRSProfileConfiguration(GROUP, STATE_KEY);
+		if (currentState != null)
 		{
-			return configManager.getConfiguration(GROUP, key);
+			return;
 		}
-		return configManager.getConfiguration(GROUP, profileKey, key);
+
+		String currentBackup = configManager.getRSProfileConfiguration(GROUP, STATE_BACKUP_KEY);
+		if (currentBackup != null)
+		{
+			return;
+		}
+
+		String oldState = configManager.getConfiguration(GROUP, STATE_KEY);
+		String oldBackup = configManager.getConfiguration(GROUP, STATE_BACKUP_KEY);
+		if (oldState == null && oldBackup == null)
+		{
+			return;
+		}
+
+		if (oldState != null)
+		{
+			configManager.setRSProfileConfiguration(GROUP, STATE_KEY, oldState);
+			if (!oldState.equals(configManager.getRSProfileConfiguration(GROUP, STATE_KEY)))
+			{
+				return;
+			}
+			moveOldHash(STATE_HASH_KEY);
+		}
+
+		if (oldBackup != null)
+		{
+			configManager.setRSProfileConfiguration(GROUP, STATE_BACKUP_KEY, oldBackup);
+			if (!oldBackup.equals(configManager.getRSProfileConfiguration(GROUP, STATE_BACKUP_KEY)))
+			{
+				return;
+			}
+			moveOldHash(STATE_BACKUP_HASH_KEY);
+		}
+
+		configManager.unsetConfiguration(GROUP, STATE_KEY);
+		configManager.unsetConfiguration(GROUP, STATE_HASH_KEY);
+		configManager.unsetConfiguration(GROUP, STATE_BACKUP_KEY);
+		configManager.unsetConfiguration(GROUP, STATE_BACKUP_HASH_KEY);
+	}
+
+	private void moveOldHash(String key)
+	{
+		String value = configManager.getConfiguration(GROUP, key);
+		if (value != null)
+		{
+			configManager.setRSProfileConfiguration(GROUP, key, value);
+		}
 	}
 
 	private enum LoadOutcome

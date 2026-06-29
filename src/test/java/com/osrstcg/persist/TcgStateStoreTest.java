@@ -138,5 +138,10 @@ public class TcgStateStoreTest
 		{
 			return config.get(key);
 		}
+
+		@Override
+		void moveOldState()
+		{
+		}
 	}
 }
