@@ -177,6 +177,7 @@ public class OsrsTcgPlugin extends Plugin
 		mouseManager.registerMouseWheelListener(packRevealInputListener);
 		keyManager.registerKeyListener(packRevealInputListener);
 		eventBus.register(creditAwardService);
+		creditAwardService.onPluginStarted();
 		eventBus.register(npcKillCreditTracker);
 		eventBus.register(gameMessageCreditTracker);
 		eventBus.register(cardPartyTransferService);

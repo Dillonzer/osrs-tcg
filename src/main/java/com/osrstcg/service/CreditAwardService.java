@@ -156,19 +156,26 @@ public class CreditAwardService
 		applyXpGain(xp, event.getSkill().getName() + " drop");
 	}
 
+	/** Call when the plugin is enabled mid-session so stats are not credited against empty baselines. */
+	public void onPluginStarted()
+	{
+		if (client != null && client.getGameState() == GameState.LOGGED_IN)
+		{
+			suppressCreditAwardsUntilStatsSettle();
+		}
+	}
+
 	public void onGameStateChanged(GameStateChanged event)
 	{
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
-			beginCreditAwardCooldown();
-			resetSkillCreditTracking();
+			suppressCreditAwardsUntilStatsSettle();
 			return;
 		}
 
 		if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING)
 		{
-			beginCreditAwardCooldown();
-			resetSkillCreditTracking();
+			suppressCreditAwardsUntilStatsSettle();
 		}
 	}
 
@@ -250,6 +257,12 @@ public class CreditAwardService
 		}
 
 		stateService.addCredits(credits);
+	}
+
+	private void suppressCreditAwardsUntilStatsSettle()
+	{
+		beginCreditAwardCooldown();
+		resetSkillCreditTracking();
 	}
 
 	private void beginCreditAwardCooldown()
