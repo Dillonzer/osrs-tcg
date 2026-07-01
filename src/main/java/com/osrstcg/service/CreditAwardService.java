@@ -36,6 +36,7 @@ public class CreditAwardService
 	private boolean skillXpInitialized;
 	private boolean creditAwardCooldownActive;
 	private int creditAwardCooldownUntilTick;
+	private GameState lastObservedGameState;
 
 	/** XP from skill drops not yet converted into credit chunks. */
 	private long uncreditedXp;
@@ -52,7 +53,7 @@ public class CreditAwardService
 	 */
 	public void resetExperienceCreditBaseline()
 	{
-		uncreditedXp = 0L;
+		clearUncreditedXpPool("profile change");
 		skillXpInitialized = false;
 		Arrays.fill(previousSkillXp, 0);
 		snapshotSkillBaselinesIfLoggedIn();
@@ -91,11 +92,6 @@ public class CreditAwardService
 
 	public void onStatChanged(StatChanged event)
 	{
-		if (isCreditAwardOnCooldown())
-		{
-			return;
-		}
-
 		Skill skill = event.getSkill();
 		if (skill == null)
 		{
@@ -103,6 +99,11 @@ public class CreditAwardService
 		}
 
 		trackXpGainFromStatChanged(skill, event.getXp());
+
+		if (isCreditAwardOnCooldown())
+		{
+			return;
+		}
 
 		if (isOverallSkill(skill))
 		{
@@ -161,21 +162,32 @@ public class CreditAwardService
 	{
 		if (client != null && client.getGameState() == GameState.LOGGED_IN)
 		{
-			suppressCreditAwardsUntilStatsSettle();
+			suppressCreditAwardsUntilStatsSettle(false);
 		}
 	}
 
 	public void onGameStateChanged(GameStateChanged event)
 	{
-		if (event.getGameState() == GameState.LOGGED_IN)
+		GameState next = event.getGameState();
+		GameState previous = lastObservedGameState;
+		lastObservedGameState = next;
+
+		if (next == GameState.LOGIN_SCREEN)
 		{
-			suppressCreditAwardsUntilStatsSettle();
+			suppressCreditAwardsUntilStatsSettle(true);
 			return;
 		}
 
-		if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING)
+		if (next == GameState.HOPPING)
 		{
-			suppressCreditAwardsUntilStatsSettle();
+			suppressCreditAwardsUntilStatsSettle(false);
+			return;
+		}
+
+		if (next == GameState.LOGGED_IN
+			&& (previous == GameState.LOGIN_SCREEN || previous == GameState.HOPPING || previous == GameState.LOADING))
+		{
+			suppressCreditAwardsUntilStatsSettle(previous == GameState.LOGIN_SCREEN);
 		}
 	}
 
@@ -205,7 +217,7 @@ public class CreditAwardService
 		}
 
 		int previousXp = previousSkillXp[skillIndex];
-		if (skillXpInitialized && previousXp > 0 && currentXp > previousXp)
+		if (skillXpInitialized && currentXp > previousXp)
 		{
 			applyXpGain(currentXp - previousXp, skill.getName());
 		}
@@ -219,7 +231,12 @@ public class CreditAwardService
 			return;
 		}
 
-		uncreditedXp += xpGained;
+		long nextUncreditedXp = uncreditedXp + xpGained;
+		debugAward(String.format("Registered +%s XP (%s) -> uncredited pool %s / %s",
+			NumberFormatting.format(xpGained), safeName(source),
+			NumberFormatting.format(nextUncreditedXp), NumberFormatting.format(XP_PER_CREDIT_CHUNK)));
+
+		uncreditedXp = nextUncreditedXp;
 		awardCreditsFromUncreditedXp(source);
 	}
 
@@ -259,10 +276,10 @@ public class CreditAwardService
 		stateService.addCredits(credits);
 	}
 
-	private void suppressCreditAwardsUntilStatsSettle()
+	private void suppressCreditAwardsUntilStatsSettle(boolean clearUncreditedXpPool)
 	{
 		beginCreditAwardCooldown();
-		resetSkillCreditTracking();
+		resetSkillCreditTracking(clearUncreditedXpPool);
 	}
 
 	private void beginCreditAwardCooldown()
@@ -282,13 +299,29 @@ public class CreditAwardService
 		return creditAwardCooldownActive && client != null && client.getTickCount() < creditAwardCooldownUntilTick;
 	}
 
-	private void resetSkillCreditTracking()
+	private void resetSkillCreditTracking(boolean clearUncreditedXpPool)
 	{
 		lastKnownRealLevels.clear();
 		skillLevelsInitialized = false;
 		skillXpInitialized = false;
-		uncreditedXp = 0L;
+		if (clearUncreditedXpPool)
+		{
+			clearUncreditedXpPool("login or logout");
+		}
 		Arrays.fill(previousSkillXp, 0);
+	}
+
+	private void clearUncreditedXpPool(String reason)
+	{
+		if (uncreditedXp <= 0L)
+		{
+			return;
+		}
+
+		debugAward(String.format(
+			"Uncredited XP pool cleared (%s); lost %s XP toward next chunk",
+			reason, NumberFormatting.format(uncreditedXp)));
+		uncreditedXp = 0L;
 	}
 
 	private void snapshotSkillBaselinesIfLoggedIn()
