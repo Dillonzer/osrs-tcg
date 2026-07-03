@@ -10,7 +10,6 @@ The plugin features party plugin integration that allows you to trade cards with
 
 ## Planned Features
 
-- Webhook or [Dink](https://github.com/pajlads/DinkPlugin) integration
 - More booster packs
 
 ## Acknowledgments

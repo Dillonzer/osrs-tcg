@@ -90,6 +90,22 @@ public class WikiImageCacheService
 		return future == null || !future.isDone();
 	}
 
+	/** Wiki URL suitable for external embeds (e.g. Dink Discord thumbnail). */
+	public String publicImageUrl(String rawUrl)
+	{
+		String normalized = normalizeUrl(rawUrl);
+		if (normalized.isEmpty())
+		{
+			return "";
+		}
+		String fromThumb = extractFilenameFromThumbPath(rawUrl);
+		if (!fromThumb.isEmpty())
+		{
+			return specialFilePathUrl(fromThumb);
+		}
+		return normalized;
+	}
+
 	public BufferedImage getCached(String url)
 	{
 		if (url == null)

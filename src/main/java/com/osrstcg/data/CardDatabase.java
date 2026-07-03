@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -107,6 +108,24 @@ public class CardDatabase
 	public synchronized int size()
 	{
 		return cards.size();
+	}
+
+	public synchronized Optional<CardDefinition> findByName(String cardName)
+	{
+		if (isBlank(cardName))
+		{
+			return Optional.empty();
+		}
+		String key = cardName.trim().toLowerCase(Locale.ROOT);
+		for (CardDefinition card : cards)
+		{
+			if (card != null && card.getName() != null
+				&& card.getName().trim().toLowerCase(Locale.ROOT).equals(key))
+			{
+				return Optional.of(card);
+			}
+		}
+		return Optional.empty();
 	}
 
 	public synchronized void setCardsForTesting(List<CardDefinition> testCards)

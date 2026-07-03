@@ -135,8 +135,10 @@ public final class PackSafeModeService
 				continue;
 			}
 			Color rarity = cardDatabase.chatRarityColorForCardName(name);
-			String formatted = TcgPluginGameMessages.formatPrefixedYouPulled(name, pull.isFoil(), rarity);
-			String plain = TcgPluginGameMessages.plainPrefixedYouPulled(name, pull.isFoil());
+			String formatted = TcgPluginGameMessages.formatPrefixedYouAddedCollection(
+				name, card.isNew(), pull.isFoil(), rarity);
+			String plain = TcgPluginGameMessages.plainPrefixedYouAddedCollection(
+				name, card.isNew(), pull.isFoil());
 			TcgPluginGameMessages.queueFormattedGameMessage(chatMessageManager, formatted, plain);
 		}
 

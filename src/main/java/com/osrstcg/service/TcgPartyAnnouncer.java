@@ -1,80 +1,27 @@
 package com.osrstcg.service;
 
 import com.osrstcg.OsrsTcgConfig;
-import com.osrstcg.data.CardDatabase;
 import com.osrstcg.model.TcgPublicStats;
 import com.osrstcg.party.TcgChatStatsPartyMessage;
 import com.osrstcg.party.TcgCollectionSetCompletePartyMessage;
-import com.osrstcg.party.TcgPullPartyMessage;
-import com.osrstcg.util.TcgPluginGameMessages;
-import java.awt.Color;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.party.PartyService;
 
-/**
- * Sends OSRS TCG party websocket payloads (Godly-tier pack reveals, collection set completion).
- */
+/** Sends OSRS TCG party websocket payloads (collection set completion, !tcg stats). */
 @Slf4j
 @Singleton
 public class TcgPartyAnnouncer
 {
 	private final PartyService partyService;
 	private final OsrsTcgConfig config;
-	private final ChatMessageManager chatMessageManager;
-	private final CardDatabase cardDatabase;
 
 	@Inject
-	public TcgPartyAnnouncer(
-		PartyService partyService,
-		OsrsTcgConfig config,
-		ChatMessageManager chatMessageManager,
-		CardDatabase cardDatabase)
+	public TcgPartyAnnouncer(PartyService partyService, OsrsTcgConfig config)
 	{
 		this.partyService = partyService;
 		this.config = config;
-		this.chatMessageManager = chatMessageManager;
-		this.cardDatabase = cardDatabase;
-	}
-
-	public void announceMythicPull(String cardName, boolean newForCollection, boolean foil)
-	{
-		if (!partyAnnouncementsEnabled())
-		{
-			return;
-		}
-		if (cardName == null || cardName.trim().isEmpty())
-		{
-			return;
-		}
-		String trimmed = cardName.trim();
-		Color rarity = cardDatabase.chatRarityColorForCardName(trimmed);
-		String formatted = newForCollection
-			? TcgPluginGameMessages.formatPrefixedYouAddedCollection(trimmed, foil, rarity)
-			: TcgPluginGameMessages.formatPrefixedYouPulled(trimmed, foil, rarity);
-		String plain = newForCollection
-			? TcgPluginGameMessages.plainPrefixedYouAddedCollection(trimmed, foil)
-			: TcgPluginGameMessages.plainPrefixedYouPulled(trimmed, foil);
-		TcgPluginGameMessages.queueFormattedGameMessage(chatMessageManager, formatted, plain);
-
-		if (!partyService.isInParty())
-		{
-			return;
-		}
-		try
-		{
-			TcgPullPartyMessage message = new TcgPullPartyMessage();
-			message.setCardName(cardName.trim());
-			message.setNewForCollection(newForCollection);
-			message.setFoil(foil);
-			partyService.send(message);
-		}
-		catch (Exception ex)
-		{
-			log.debug("Could not send Godly-tier party message", ex);
-		}
 	}
 
 	public void announceCollectionSetComplete(String collectionDisplayName)

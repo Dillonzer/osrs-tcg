@@ -89,22 +89,27 @@ public final class TcgPluginGameMessages
 		return "[OSRS TCG] " + who + " just pulled " + announcedCardLabel(cardName, foil) + "!";
 	}
 
-	public static String formatPrefixedSomeoneAddedCollection(String who, String cardName, boolean foil, Color rarityColor)
+	public static String formatPrefixedSomeoneAddedCollection(
+		String who, String cardName, boolean newForCollection, boolean foil, Color rarityColor)
 	{
 		return prefixBuilder()
 			.append(ChatColorType.NORMAL)
 			.append(who)
 			.append(ChatColorType.NORMAL)
 			.append(" just added ")
+			.append(ChatColorType.NORMAL)
+			.append(duplicatePrefix(newForCollection))
 			.append(rarityColor, announcedCardLabel(cardName, foil))
 			.append(ChatColorType.NORMAL)
 			.append(" to their collection!")
 			.build();
 	}
 
-	public static String plainPrefixedSomeoneAddedCollection(String who, String cardName, boolean foil)
+	public static String plainPrefixedSomeoneAddedCollection(
+		String who, String cardName, boolean newForCollection, boolean foil)
 	{
-		return "[OSRS TCG] " + who + " just added " + announcedCardLabel(cardName, foil) + " to their collection!";
+		return "[OSRS TCG] " + who + " just added " + duplicatePrefix(newForCollection)
+			+ announcedCardLabel(cardName, foil) + " to their collection!";
 	}
 
 	public static String formatPrefixedYouPulled(String cardName, boolean foil, Color rarityColor)
@@ -123,20 +128,24 @@ public final class TcgPluginGameMessages
 		return "[OSRS TCG] You just pulled " + announcedCardLabel(cardName, foil) + "!";
 	}
 
-	public static String formatPrefixedYouAddedCollection(String cardName, boolean foil, Color rarityColor)
+	public static String formatPrefixedYouAddedCollection(
+		String cardName, boolean newForCollection, boolean foil, Color rarityColor)
 	{
 		return prefixBuilder()
 			.append(ChatColorType.NORMAL)
 			.append("You just added ")
+			.append(ChatColorType.NORMAL)
+			.append(duplicatePrefix(newForCollection))
 			.append(rarityColor, announcedCardLabel(cardName, foil))
 			.append(ChatColorType.NORMAL)
 			.append(" to your collection!")
 			.build();
 	}
 
-	public static String plainPrefixedYouAddedCollection(String cardName, boolean foil)
+	public static String plainPrefixedYouAddedCollection(String cardName, boolean newForCollection, boolean foil)
 	{
-		return "[OSRS TCG] You just added " + announcedCardLabel(cardName, foil) + " to your collection!";
+		return "[OSRS TCG] You just added " + duplicatePrefix(newForCollection)
+			+ announcedCardLabel(cardName, foil) + " to your collection!";
 	}
 
 	public static String formatPrefixedSomeoneSentYou(String who, String cardName, boolean foil, Color rarityColor)
@@ -218,5 +227,10 @@ public final class TcgPluginGameMessages
 			.append(action)
 			.append(".")
 			.build();
+	}
+
+	private static String duplicatePrefix(boolean newForCollection)
+	{
+		return newForCollection ? "" : "duplicate ";
 	}
 }

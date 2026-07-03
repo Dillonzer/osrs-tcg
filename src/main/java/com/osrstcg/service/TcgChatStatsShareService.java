@@ -102,51 +102,95 @@ public class TcgChatStatsShareService
 
 	public String buildColoredLine(TcgPublicStats s)
 	{
+		return buildFormattedLine(s, true);
+	}
+
+	public String buildPlainLine(TcgPublicStats s)
+	{
+		return buildFormattedLine(s, false);
+	}
+
+	private static String buildFormattedLine(TcgPublicStats s, boolean colored)
+	{
 		String pct = String.format(Locale.US, "%.1f%%", s.getCompletionPct());
 		String foilPct = String.format(Locale.US, "%.1f%%", s.getFoilCompletionPct());
-		ChatMessageBuilder builder = new ChatMessageBuilder()
-			.append(ChatColorType.NORMAL)
+		if (colored)
+		{
+			ChatMessageBuilder builder = new ChatMessageBuilder()
+				.append(ChatColorType.NORMAL)
+				.append("Collection score: ")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(NumberFormatting.format(s.getCollectionScore()))
+				.append(ChatColorType.NORMAL)
+				.append(" (")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(pct)
+				.append(ChatColorType.NORMAL)
+				.append("), Unique cards: ")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(NumberFormatting.format(s.getUniqueOwned()))
+				.append(ChatColorType.NORMAL)
+				.append(" / ")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(NumberFormatting.format(s.getTotalCardPool()))
+				.append(ChatColorType.NORMAL)
+				.append(" (")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(pct)
+				.append(ChatColorType.NORMAL)
+				.append("), Unique foil cards: ")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(NumberFormatting.format(s.getUniqueFoilOwned()))
+				.append(ChatColorType.NORMAL)
+				.append(" / ")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(NumberFormatting.format(s.getTotalCardPool()))
+				.append(ChatColorType.NORMAL)
+				.append(" (")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(foilPct)
+				.append(ChatColorType.NORMAL)
+				.append("), Opened packs: ")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(NumberFormatting.format(s.getOpenedPacks()))
+				.append(ChatColorType.NORMAL)
+				.append(", Total cards: ")
+				.append(ChatColorType.HIGHLIGHT)
+				.append(NumberFormatting.format(s.getTotalCardsOwned()));
+			if (s.isCustomRates())
+			{
+				builder.append(ChatColorType.NORMAL)
+					.append(" (custom rates)");
+			}
+			return builder.build();
+		}
+
+		StringBuilder plain = new StringBuilder()
 			.append("Collection score: ")
-			.append(ChatColorType.HIGHLIGHT)
 			.append(NumberFormatting.format(s.getCollectionScore()))
-			.append(ChatColorType.NORMAL)
 			.append(" (")
-			.append(ChatColorType.HIGHLIGHT)
 			.append(pct)
-			.append(ChatColorType.NORMAL)
 			.append("), Unique cards: ")
-			.append(ChatColorType.HIGHLIGHT)
 			.append(NumberFormatting.format(s.getUniqueOwned()))
-			.append(ChatColorType.NORMAL)
 			.append(" / ")
-			.append(ChatColorType.HIGHLIGHT)
 			.append(NumberFormatting.format(s.getTotalCardPool()))
-			.append(ChatColorType.NORMAL)
-			.append(", Unique foil cards: ")
-			.append(ChatColorType.HIGHLIGHT)
-			.append(NumberFormatting.format(s.getUniqueFoilOwned()))
-			.append(ChatColorType.NORMAL)
-			.append(" / ")
-			.append(ChatColorType.HIGHLIGHT)
-			.append(NumberFormatting.format(s.getTotalCardPool()))
-			.append(ChatColorType.NORMAL)
 			.append(" (")
-			.append(ChatColorType.HIGHLIGHT)
+			.append(pct)
+			.append("), Unique foil cards: ")
+			.append(NumberFormatting.format(s.getUniqueFoilOwned()))
+			.append(" / ")
+			.append(NumberFormatting.format(s.getTotalCardPool()))
+			.append(" (")
 			.append(foilPct)
-			.append(ChatColorType.NORMAL)
 			.append("), Opened packs: ")
-			.append(ChatColorType.HIGHLIGHT)
 			.append(NumberFormatting.format(s.getOpenedPacks()))
-			.append(ChatColorType.NORMAL)
 			.append(", Total cards: ")
-			.append(ChatColorType.HIGHLIGHT)
 			.append(NumberFormatting.format(s.getTotalCardsOwned()));
 		if (s.isCustomRates())
 		{
-			builder.append(ChatColorType.NORMAL)
-				.append(" (custom rates)");
+			plain.append(" (custom rates)");
 		}
-		return builder.build();
+		return plain.toString();
 	}
 
 	private static String normalizeKey(String sanitizedRsn)

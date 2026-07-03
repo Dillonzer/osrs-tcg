@@ -296,12 +296,10 @@ public class OsrsTcgPlugin extends Plugin
 			: "A party member";
 		String trimmed = cardName.trim();
 		Color rarity = cardDatabase.chatRarityColorForCardName(trimmed);
-		String formatted = message.isNewForCollection()
-			? TcgPluginGameMessages.formatPrefixedSomeoneAddedCollection(who, trimmed, message.isFoil(), rarity)
-			: TcgPluginGameMessages.formatPrefixedSomeonePulled(who, trimmed, message.isFoil(), rarity);
-		String plain = message.isNewForCollection()
-			? TcgPluginGameMessages.plainPrefixedSomeoneAddedCollection(who, trimmed, message.isFoil())
-			: TcgPluginGameMessages.plainPrefixedSomeonePulled(who, trimmed, message.isFoil());
+		String formatted = TcgPluginGameMessages.formatPrefixedSomeoneAddedCollection(
+			who, trimmed, message.isNewForCollection(), message.isFoil(), rarity);
+		String plain = TcgPluginGameMessages.plainPrefixedSomeoneAddedCollection(
+			who, trimmed, message.isNewForCollection(), message.isFoil());
 		TcgPluginGameMessages.queueFormattedGameMessage(chatMessageManager, formatted, plain);
 	}
 

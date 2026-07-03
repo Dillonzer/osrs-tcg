@@ -152,7 +152,7 @@ public class PackRevealService
 	private final CardDatabase cardDatabase;
 	private final WikiImageCacheService imageCacheService;
 	private final PackRevealSoundService packRevealSoundService;
-	private final TcgPartyAnnouncer partyAnnouncer;
+	private final PullNotificationService pullNotificationService;
 
 	private Phase phase = Phase.IDLE;
 	private List<RevealCard> cards = List.of();
@@ -171,12 +171,12 @@ public class PackRevealService
 
 	@Inject
 	public PackRevealService(CardDatabase cardDatabase, WikiImageCacheService imageCacheService,
-		PackRevealSoundService packRevealSoundService, TcgPartyAnnouncer partyAnnouncer)
+		PackRevealSoundService packRevealSoundService, PullNotificationService pullNotificationService)
 	{
 		this.cardDatabase = cardDatabase;
 		this.imageCacheService = imageCacheService;
 		this.packRevealSoundService = packRevealSoundService;
-		this.partyAnnouncer = partyAnnouncer;
+		this.pullNotificationService = pullNotificationService;
 	}
 
 	public synchronized void startReveal(List<PackCardResult> pulls)
@@ -304,7 +304,6 @@ public class PackRevealService
 			if (clickedIndex >= 0 && clickedIndex < revealedByIndex.length && !revealedByIndex[clickedIndex])
 			{
 				RevealCard clicked = cards.get(clickedIndex);
-				boolean highlightPull = isHighlightPull(clicked);
 				revealedByIndex[clickedIndex] = true;
 				revealedCount++;
 				packRevealSoundService.playCardFlip();
@@ -312,9 +311,10 @@ public class PackRevealService
 				{
 					packRevealSoundService.playMythicReveal();
 				}
-				if (highlightPull)
+				if (pullNotificationService.shouldNotify(clicked.getTier(), isFoilPull(clicked), clicked.isNew()))
 				{
-					partyAnnouncer.announceMythicPull(cardNameForParty(clicked), clicked.isNew(), isFoilPull(clicked));
+					pullNotificationService.notifyPull(
+						cardNameForParty(clicked), clicked.isNew(), isFoilPull(clicked), clicked.getTier());
 				}
 				if (revealedCount >= cards.size())
 				{
@@ -688,27 +688,12 @@ public class PackRevealService
 				continue;
 			}
 			RevealCard card = cards.get(i);
-			if (isHighlightPull(card))
+			if (pullNotificationService.shouldNotify(card.getTier(), isFoilPull(card), card.isNew()))
 			{
-				partyAnnouncer.announceMythicPull(cardNameForParty(card), card.isNew(), isFoilPull(card));
+				pullNotificationService.notifyPull(
+					cardNameForParty(card), card.isNew(), isFoilPull(card), card.getTier());
 			}
 		}
-	}
-
-	/**
-	 * Party / emphasis: any Godly-tier pull or any foil (matches album “special” treatment elsewhere).
-	 */
-	private static boolean isHighlightPull(RevealCard card)
-	{
-		if (card == null)
-		{
-			return false;
-		}
-		if (card.getTier() == RarityMath.Tier.GODLY)
-		{
-			return true;
-		}
-		return card.getPull() != null && card.getPull().isFoil();
 	}
 
 	/**
