@@ -4,8 +4,6 @@ import com.osrstcg.data.BoosterPackDefinition;
 import com.osrstcg.data.CardDatabase;
 import com.osrstcg.data.CardDefinition;
 import com.osrstcg.data.PackCatalog;
-import com.osrstcg.debug.catalogedit.DebugCardCatalogEditFacade;
-import com.osrstcg.debug.catalogedit.DebugCardEditGate;
 import com.osrstcg.model.CardCollectionKey;
 import com.osrstcg.model.OwnedCardInstance;
 import com.osrstcg.model.TcgState;
@@ -27,18 +25,11 @@ import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import javax.swing.ActionMap;
-import javax.swing.InputMap;
-import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
-import javax.swing.AbstractAction;
-import javax.swing.KeyStroke;
-import javax.swing.text.JTextComponent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -99,7 +90,6 @@ public final class CollectionAlbumWindow extends JFrame
 	private final WikiImageCacheService imageCacheService;
 	private final PartyService partyService;
 	private final CardPartyTransferService cardPartyTransferService;
-	private final DebugCardEditGate debugCardEditGate;
 
 	private final List<Long> partyMemberIds = new ArrayList<>();
 	private final JComboBox<String> partyMemberCombo = new JComboBox<>();
@@ -164,9 +154,7 @@ public final class CollectionAlbumWindow extends JFrame
 		PackCatalog packCatalog,
 		WikiImageCacheService imageCacheService,
 		PartyService partyService,
-		CardPartyTransferService cardPartyTransferService,
-		DebugCardCatalogEditFacade debugCardCatalogEditFacade,
-		DebugCardEditGate debugCardEditGate)
+		CardPartyTransferService cardPartyTransferService)
 	{
 		super("OSRS TCG — Collection album");
 		if (WINDOW_ICON != null)
@@ -179,8 +167,7 @@ public final class CollectionAlbumWindow extends JFrame
 		this.imageCacheService = imageCacheService;
 		this.partyService = partyService;
 		this.cardPartyTransferService = cardPartyTransferService;
-		this.debugCardEditGate = debugCardEditGate;
-		this.grid = new CollectionAlbumGridPanel(imageCacheService, debugCardCatalogEditFacade,
+		this.grid = new CollectionAlbumGridPanel(imageCacheService,
 			this::onOwnedMultiCopyAlbumPress, this::onAlbumCardLockToggle, this::onSlotSelectionChanged);
 		this.variantsPanel = new CollectionAlbumVariantsPanel(imageCacheService, this::onVariantInstancePicked,
 			this::onVariantCardLockToggle);
@@ -556,42 +543,7 @@ public final class CollectionAlbumWindow extends JFrame
 				scheduleApplySavedWindowSize();
 			}
 		});
-		installDebugQuickSellKeyBindings();
 		applySavedWindowSize();
-	}
-
-	private void installDebugQuickSellKeyBindings()
-	{
-		KeyStroke deleteKey = KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0);
-		InputMap inputMap = getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-		ActionMap actionMap = getRootPane().getActionMap();
-		inputMap.put(deleteKey, "debugQuickSellSelectedCard");
-		actionMap.put("debugQuickSellSelectedCard", new AbstractAction()
-		{
-			@Override
-			public void actionPerformed(ActionEvent e)
-			{
-				tryDebugQuickSellFromKeyboard();
-			}
-		});
-	}
-
-	private void tryDebugQuickSellFromKeyboard()
-	{
-		if (!debugCardEditGate.isEnabled())
-		{
-			return;
-		}
-		Component focus = getFocusOwner();
-		if (focus instanceof JTextComponent)
-		{
-			return;
-		}
-		if (!sellCardBtn.isEnabled())
-		{
-			return;
-		}
-		sellSelectedCard(true);
 	}
 
 	/** Re-applies persisted size before showing (layout during first build can reset early setSize). */
@@ -1374,14 +1326,7 @@ public final class CollectionAlbumWindow extends JFrame
 		long sellValue = sellCreditsForChosenInstance();
 		sellCardBtn.setText("Sell for " + NumberFormatting.format(sellValue));
 		sellCardBtn.setEnabled(true);
-		if (debugCardEditGate.isEnabled())
-		{
-			sellCardBtn.setToolTipText("Sell selected copy (press Delete)");
-		}
-		else
-		{
-			sellCardBtn.setToolTipText(null);
-		}
+		sellCardBtn.setToolTipText(null);
 	}
 
 	private boolean isChosenInstanceLocked()
@@ -1430,10 +1375,10 @@ public final class CollectionAlbumWindow extends JFrame
 
 	private void onSellSelectedCardClicked(ActionEvent e)
 	{
-		sellSelectedCard(false);
+		sellSelectedCard();
 	}
 
-	private void sellSelectedCard(boolean debugQuickSell)
+	private void sellSelectedCard()
 	{
 		if (sendChosenInstanceId == null || sendChosenInstanceId.isEmpty())
 		{
@@ -1448,8 +1393,7 @@ public final class CollectionAlbumWindow extends JFrame
 		{
 			return;
 		}
-		boolean skipOnlyCopyConfirm = debugQuickSell && debugCardEditGate.isEnabled();
-		if (!skipOnlyCopyConfirm && isOnlyOwnedCopy(sendChosenInstanceId))
+		if (isOnlyOwnedCopy(sendChosenInstanceId))
 		{
 			String cardName = displayNameForInstance(sendChosenInstanceId);
 			int choice = JOptionPane.showConfirmDialog(

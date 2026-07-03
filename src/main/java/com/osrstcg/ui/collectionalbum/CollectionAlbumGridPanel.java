@@ -1,7 +1,6 @@
 package com.osrstcg.ui.collectionalbum;
 
 import com.osrstcg.data.CardDefinition;
-import com.osrstcg.debug.catalogedit.DebugCardCatalogEditFacade;
 import com.osrstcg.service.WikiImageCacheService;
 import com.osrstcg.ui.SharedCardRenderer;
 import java.awt.AlphaComposite;
@@ -34,7 +33,6 @@ final class CollectionAlbumGridPanel extends JPanel
 	private static final int QTY_LABEL_RESERVE_PX = 18;
 
 	private final WikiImageCacheService imageCacheService;
-	private final DebugCardCatalogEditFacade debugCardCatalogEditFacade;
 	private final BiConsumer<Integer, AlbumSlot> ownedMultiCopyPressed;
 	private final Consumer<AlbumSlot> onLockToggle;
 	private final Runnable onSelectionChanged;
@@ -43,13 +41,11 @@ final class CollectionAlbumGridPanel extends JPanel
 	private int selectedIndex = -1;
 
 	CollectionAlbumGridPanel(WikiImageCacheService imageCacheService,
-		DebugCardCatalogEditFacade debugCardCatalogEditFacade,
 		BiConsumer<Integer, AlbumSlot> ownedMultiCopyPressed,
 		Consumer<AlbumSlot> onLockToggle,
 		Runnable onSelectionChanged)
 	{
 		this.imageCacheService = imageCacheService;
-		this.debugCardCatalogEditFacade = debugCardCatalogEditFacade;
 		this.ownedMultiCopyPressed = ownedMultiCopyPressed;
 		this.onLockToggle = onLockToggle;
 		this.onSelectionChanged = onSelectionChanged == null ? () -> {} : onSelectionChanged;
@@ -64,10 +60,6 @@ final class CollectionAlbumGridPanel extends JPanel
 			@Override
 			public void mousePressed(MouseEvent e)
 			{
-				if (tryDebugContextMenu(e))
-				{
-					return;
-				}
 				if (tryLockToggle(e))
 				{
 					return;
@@ -78,10 +70,6 @@ final class CollectionAlbumGridPanel extends JPanel
 			@Override
 			public void mouseReleased(MouseEvent e)
 			{
-				if (tryDebugContextMenu(e))
-				{
-					return;
-				}
 				tryLockToggle(e);
 			}
 		});
@@ -105,21 +93,6 @@ final class CollectionAlbumGridPanel extends JPanel
 			return null;
 		}
 		return slots.get(selectedIndex);
-	}
-
-	private boolean tryDebugContextMenu(MouseEvent e)
-	{
-		if (e == null || !e.isPopupTrigger() || debugCardCatalogEditFacade == null)
-		{
-			return false;
-		}
-		int idx = hitTestSlotIndex(e);
-		if (idx < 0 || idx >= slots.size())
-		{
-			return false;
-		}
-		AlbumSlot slot = slots.get(idx);
-		return debugCardCatalogEditFacade.tryShowAlbumCardContextMenu(e, this, slot);
 	}
 
 	private boolean tryLockToggle(MouseEvent e)

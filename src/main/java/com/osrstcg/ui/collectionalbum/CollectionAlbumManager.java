@@ -2,9 +2,6 @@ package com.osrstcg.ui.collectionalbum;
 
 import com.osrstcg.data.CardDatabase;
 import com.osrstcg.data.PackCatalog;
-import com.osrstcg.debug.catalogedit.DebugCardCatalogEditFacade;
-import com.osrstcg.debug.catalogedit.DebugCardEditGate;
-import com.osrstcg.debug.catalogedit.DebugCatalogRefreshBroadcaster;
 import com.osrstcg.service.CardPartyTransferService;
 import com.osrstcg.service.TcgStateService;
 import com.osrstcg.service.WikiImageCacheService;
@@ -22,8 +19,6 @@ public final class CollectionAlbumManager
 	private final WikiImageCacheService imageCacheService;
 	private final PartyService partyService;
 	private final CardPartyTransferService cardPartyTransferService;
-	private final DebugCardCatalogEditFacade debugCardCatalogEditFacade;
-	private final DebugCardEditGate debugCardEditGate;
 
 	private volatile CollectionAlbumWindow window;
 
@@ -34,10 +29,7 @@ public final class CollectionAlbumManager
 		PackCatalog packCatalog,
 		WikiImageCacheService imageCacheService,
 		PartyService partyService,
-		CardPartyTransferService cardPartyTransferService,
-		DebugCardCatalogEditFacade debugCardCatalogEditFacade,
-		DebugCardEditGate debugCardEditGate,
-		DebugCatalogRefreshBroadcaster debugCatalogRefreshBroadcaster)
+		CardPartyTransferService cardPartyTransferService)
 	{
 		this.cardDatabase = cardDatabase;
 		this.stateService = stateService;
@@ -45,9 +37,6 @@ public final class CollectionAlbumManager
 		this.imageCacheService = imageCacheService;
 		this.partyService = partyService;
 		this.cardPartyTransferService = cardPartyTransferService;
-		this.debugCardCatalogEditFacade = debugCardCatalogEditFacade;
-		this.debugCardEditGate = debugCardEditGate;
-		debugCatalogRefreshBroadcaster.register(this::refreshAfterCatalogReload);
 	}
 
 	public void showOrBringToFront()
@@ -58,7 +47,7 @@ public final class CollectionAlbumManager
 			{
 				window = new CollectionAlbumWindow(
 					cardDatabase, stateService, packCatalog, imageCacheService, partyService,
-					cardPartyTransferService, debugCardCatalogEditFacade, debugCardEditGate);
+					cardPartyTransferService);
 			}
 			window.refreshData();
 			window.prepareToShow();
@@ -75,19 +64,6 @@ public final class CollectionAlbumManager
 			if (w != null && w.isShowing())
 			{
 				w.rebuildModel();
-			}
-		});
-	}
-
-	/** Full album refresh (tabs, rarity table, grid) after a developer workspace catalog reload. */
-	public void refreshAfterCatalogReload()
-	{
-		SwingUtilities.invokeLater(() ->
-		{
-			CollectionAlbumWindow w = window;
-			if (w != null && w.isDisplayable())
-			{
-				w.refreshData();
 			}
 		});
 	}

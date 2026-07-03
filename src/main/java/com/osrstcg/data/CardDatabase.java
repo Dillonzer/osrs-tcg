@@ -13,8 +13,6 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -58,36 +56,6 @@ public class CardDatabase
 		loaded = true;
 		rebuildChatRarityColorIndex();
 		log.info("Loaded {} cards from Card.json", cards.size());
-	}
-
-	/**
-	 * Reloads the catalog from workspace {@code Card.json} when that file exists (developer catalog editor);
-	 * otherwise falls back to the bundled classpath resource.
-	 */
-	public synchronized void forceReloadForDebug(Path workspaceCardJson)
-	{
-		loaded = false;
-		List<CardDefinition> loadedCards;
-		if (workspaceCardJson != null && Files.isRegularFile(workspaceCardJson))
-		{
-			try (Reader reader = Files.newBufferedReader(workspaceCardJson, StandardCharsets.UTF_8))
-			{
-				loadedCards = normalize(parse(reader));
-				log.info("Loaded {} cards from workspace {}", loadedCards.size(), workspaceCardJson);
-			}
-			catch (IOException | JsonSyntaxException ex)
-			{
-				log.warn("Failed reading workspace Card.json, using classpath", ex);
-				loadedCards = loadFromClasspath();
-			}
-		}
-		else
-		{
-			loadedCards = loadFromClasspath();
-		}
-		cards = Collections.unmodifiableList(loadedCards);
-		loaded = true;
-		rebuildChatRarityColorIndex();
 	}
 
 	public synchronized List<CardDefinition> getCards()

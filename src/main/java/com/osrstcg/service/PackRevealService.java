@@ -615,12 +615,6 @@ public class PackRevealService
 		return -1;
 	}
 
-	/** Refreshes roll-pool / tier index after a developer workspace catalog reload. */
-	public synchronized void refreshAfterCatalogReload()
-	{
-		rebuildRarityTierIndex();
-	}
-
 	private void rebuildRarityTierIndex()
 	{
 		rarityTierByCardName.clear();
