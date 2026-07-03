@@ -27,7 +27,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * Sends rarity-coloured Discord embeds to an optional user-configured webhook URL.
+ * Sends rarity-coloured Discord embeds to optional user-configured webhook URL(s).
  */
 @Slf4j
 @Singleton
@@ -80,11 +80,10 @@ public class PullWebhookNotificationService
 			return;
 		}
 
-		String trimmed = webhookUrl.trim();
-		HttpUrl parsedUrl = HttpUrl.parse(trimmed);
-		if (parsedUrl == null)
+		List<HttpUrl> webhookUrls = parseWebhookUrls(webhookUrl);
+		if (webhookUrls.isEmpty())
 		{
-			log.warn("Pull webhook skipped: invalid URL {}", maskWebhookUrl(trimmed));
+			log.warn("Pull webhook skipped: no valid URLs in config");
 			return;
 		}
 
@@ -98,56 +97,97 @@ public class PullWebhookNotificationService
 			String payload = gson.toJson(buildPayload(description, statsLine, tier, imageUrl));
 
 			log.info(
-				"Sending pull webhook for '{}' (foil={}, new={}, tier={}) to {} (payload {} bytes, footer {} chars)",
+				"Sending pull webhook for '{}' (foil={}, new={}, tier={}) to {} URL(s) (payload {} bytes, footer {} chars)",
 				card,
 				foil,
 				newForCollection,
 				tier == null ? "unknown" : tier.getLabel(),
-				maskWebhookUrl(trimmed),
+				webhookUrls.size(),
 				payload.length(),
 				statsLine.length());
 
-			Request request = new Request.Builder()
-				.url(parsedUrl)
-				.post(RequestBody.create(JSON, payload))
-				.build();
-
-			okHttpClient.newCall(request).enqueue(new Callback()
+			for (HttpUrl parsedUrl : webhookUrls)
 			{
-				@Override
-				public void onFailure(Call call, IOException e)
-				{
-					log.warn("Pull webhook request failed for '{}': {}", card, e.toString());
-				}
-
-				@Override
-				public void onResponse(Call call, Response response)
-				{
-					try (ResponseBody body = response.body())
-					{
-						if (response.isSuccessful())
-						{
-							log.info("Pull webhook sent for '{}' (HTTP {})", card, response.code());
-							return;
-						}
-						String responseBody = body == null ? "" : body.string();
-						log.warn(
-							"Pull webhook rejected for '{}' (HTTP {}): {}",
-							card,
-							response.code(),
-							truncateForLog(responseBody));
-					}
-					catch (IOException ex)
-					{
-						log.warn("Pull webhook response read failed for '{}': {}", card, ex.toString());
-					}
-				}
-			});
+				enqueueWebhook(card, parsedUrl, payload);
+			}
 		}
 		catch (Exception ex)
 		{
 			log.warn("Pull webhook failed before send for '{}'", cardName.trim(), ex);
 		}
+	}
+
+	private void enqueueWebhook(String card, HttpUrl parsedUrl, String payload)
+	{
+		Request request = new Request.Builder()
+			.url(parsedUrl)
+			.post(RequestBody.create(JSON, payload))
+			.build();
+
+		okHttpClient.newCall(request).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				log.warn("Pull webhook request failed for '{}' ({}): {}", card, maskWebhookUrl(parsedUrl), e.toString());
+			}
+
+			@Override
+			public void onResponse(Call call, Response response)
+			{
+				try (ResponseBody body = response.body())
+				{
+					if (response.isSuccessful())
+					{
+						log.info("Pull webhook sent for '{}' to {} (HTTP {})",
+							card, maskWebhookUrl(parsedUrl), response.code());
+						return;
+					}
+					String responseBody = body == null ? "" : body.string();
+					log.warn(
+						"Pull webhook rejected for '{}' at {} (HTTP {}): {}",
+						card,
+						maskWebhookUrl(parsedUrl),
+						response.code(),
+						truncateForLog(responseBody));
+				}
+				catch (IOException ex)
+				{
+					log.warn("Pull webhook response read failed for '{}' ({}): {}",
+						card, maskWebhookUrl(parsedUrl), ex.toString());
+				}
+			}
+		});
+	}
+
+	private static List<HttpUrl> parseWebhookUrls(String raw)
+	{
+		List<HttpUrl> urls = new ArrayList<>();
+		for (String line : raw.split("\\R"))
+		{
+			String trimmed = line.trim();
+			if (trimmed.isEmpty())
+			{
+				continue;
+			}
+			HttpUrl parsed = HttpUrl.parse(trimmed);
+			if (parsed == null)
+			{
+				log.warn("Pull webhook skipped invalid URL line: {}", maskWebhookUrl(trimmed));
+				continue;
+			}
+			urls.add(parsed);
+		}
+		return urls;
+	}
+
+	private static String maskWebhookUrl(HttpUrl url)
+	{
+		if (url == null)
+		{
+			return "<invalid>";
+		}
+		return url.scheme() + "://" + url.host() + url.encodedPath();
 	}
 
 	private static Map<String, Object> buildPayload(
@@ -202,12 +242,7 @@ public class PullWebhookNotificationService
 		{
 			return "<empty>";
 		}
-		HttpUrl parsed = HttpUrl.parse(url.trim());
-		if (parsed == null)
-		{
-			return "<invalid>";
-		}
-		return parsed.scheme() + "://" + parsed.host() + parsed.encodedPath();
+		return maskWebhookUrl(HttpUrl.parse(url.trim()));
 	}
 
 	private static String truncateForLog(String value)

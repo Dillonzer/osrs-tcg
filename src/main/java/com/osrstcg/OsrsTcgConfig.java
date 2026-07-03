@@ -94,7 +94,8 @@ public interface OsrsTcgConfig extends Config
 	@ConfigItem(
 		keyName = "pullWebhookUrl",
 		name = "Webhook URL",
-		description = "Optional Discord webhook URL for pull notifications. "
+		description = "Optional Discord webhook URL(s) for pull notifications. "
+			+ "You can target multiple webhooks by specifying their URLs on separate lines. "
 			+ "Sends a rarity-coloured embed with card artwork when a pull triggers a chat notification. "
 			+ "Leave empty to disable.",
 		section = pullNotificationsSection,
