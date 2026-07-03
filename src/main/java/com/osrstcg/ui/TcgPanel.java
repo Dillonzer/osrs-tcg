@@ -797,7 +797,7 @@ public class TcgPanel extends PluginPanel
 
 	private void renderPacksTabFromPackClose(JPanel target, PackCloseSnapshot snap, List<BoosterShopRow> shopRows)
 	{
-		target.add(statPanel("Current credits", format(snap.credits)));
+		target.add(imageStatPanel("Current credits", format(snap.credits),"/credits.png"));
 		target.add(Box.createRigidArea(new Dimension(0, 8)));
 		target.add(sellDuplicatesPanel());
 		updateSellDuplicatesButtonState(snap.owned);
