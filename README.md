@@ -23,7 +23,7 @@ Card images are loaded from the [OSRS Wiki](https://oldschool.runescape.wiki/).
 
 ## Disclaimer
 
-**Upcoming collection reset:** There will be a collection reset in the near future after fixing credit-related exploits, major bugs, and adjusting rates based on feedback. What players get to keep from before the reset is yet to be decided.
+**Beta collections and trading:** The planned force wipe of beta collections has been canceled. When the full release update ships, existing beta collections will keep their cards and credits, but will no longer be able to trade with other players unless you manually reset your collection from the plugin panel after the update. A date for this change has not been specified yet.
 
 This plugin is a fan-made minigame for fun only. Cards have no real-world or in-game monetary value and are not intended to be bought, sold, or traded for real money, bonds, gold, items, or any other goods or services.
 
