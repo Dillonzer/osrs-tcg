@@ -893,6 +893,8 @@ public class TcgPanel extends PluginPanel
 		target.add(Box.createRigidArea(new Dimension(0, 6)));
 		target.add(statPanel("Collection %", String.format("%.1f%%", m.completionPct)));
 		target.add(Box.createRigidArea(new Dimension(0, 6)));
+		target.add(statPanel("Collection Foil %", String.format("%.1f%%", m.foilCompletionPct)));
+		target.add(Box.createRigidArea(new Dimension(0, 6)));
 		target.add(statPanel("Collection score", format(m.collectionScore)));
 		target.add(Box.createRigidArea(new Dimension(0, 8)));
 		addRewardTuningOverviewSection(target, state);
@@ -934,10 +936,11 @@ public class TcgPanel extends PluginPanel
 		private final long foilOwned;
 		private final int totalCardPool;
 		private final double completionPct;
+		private final double foilCompletionPct;
 		private final long collectionScore;
 
 		private OverviewMetrics(int uniqueOwned, int uniqueFoilOwned, int totalCardsOwned, long foilOwned,
-			int totalCardPool, double completionPct, long collectionScore)
+			int totalCardPool, double completionPct, double foilCompletionPct, long collectionScore)
 		{
 			this.uniqueOwned = uniqueOwned;
 			this.uniqueFoilOwned = uniqueFoilOwned;
@@ -945,6 +948,7 @@ public class TcgPanel extends PluginPanel
 			this.foilOwned = foilOwned;
 			this.totalCardPool = totalCardPool;
 			this.completionPct = completionPct;
+			this.foilCompletionPct = foilCompletionPct;
 			this.collectionScore = collectionScore;
 		}
 
@@ -986,6 +990,7 @@ public class TcgPanel extends PluginPanel
 				.count();
 			int totalCardPool = rollPool.size();
 			double completion = totalCardPool <= 0 ? 0.0d : (100.0d * uniqueOwned) / totalCardPool;
+			double foilCompletion = totalCardPool <= 0 ? 0.0d : (100.0d * uniqueFoilOwned) / totalCardPool;
 
 			Set<String> collectedNames = collectedNamesFromOwned(owned);
 			Map<String, CardDefinition> defByLower = new HashMap<>();
@@ -1012,7 +1017,7 @@ public class TcgPanel extends PluginPanel
 				collectionScore += hasFoil ? RarityMath.foilAdjustedScoreRounded(def) : Math.round(RarityMath.score(def));
 			}
 			return new OverviewMetrics(uniqueOwned, uniqueFoilOwned, totalCardsOwned, foilOwned, totalCardPool,
-				completion, collectionScore);
+				completion, foilCompletion, collectionScore);
 		}
 	}
 
