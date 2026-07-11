@@ -3,7 +3,9 @@ package com.osrstcg.service;
 import com.osrstcg.util.NumberFormatting;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,14 @@ public class CreditAwardService
 	private static final int FAKE_XP_DROP_SANITY_CAP = 20_000_000;
 	/** Suppress credit awards while stats settle after login or a world hop. */
 	private static final int CREDIT_AWARD_COOLDOWN_TICKS = 15;
+	private static final Set<Skill> COMBAT_SKILLS = EnumSet.of(
+		Skill.ATTACK,
+		Skill.DEFENCE,
+		Skill.STRENGTH,
+		Skill.HITPOINTS,
+		Skill.MAGIC,
+		Skill.RANGED
+	);
 
 	private final Client client;
 	private final TcgStateService stateService;
@@ -157,6 +167,18 @@ public class CreditAwardService
 		}
 
 		Skill skill = event.getSkill();
+		if (isCombatSkill(skill))
+		{
+			int xp = event.getXp();
+			if (xp > 0 && xp < FAKE_XP_DROP_SANITY_CAP)
+			{
+				debugAward(String.format(
+					"Ignored fake XP drop for combat skill %s (+%s XP)",
+					skill.getName(), NumberFormatting.format(xp)));
+			}
+			return;
+		}
+
 		if (!isGenuineMaxedSkillFakeXpDrop(skill))
 		{
 			debugAward(String.format(
@@ -276,7 +298,17 @@ public class CreditAwardService
 		int previousXp = previousSkillXp[skillIndex];
 		if (skillXpInitialized && currentXp > previousXp)
 		{
-			applyXpGain(currentXp - previousXp, skill.getName());
+			long xpGained = (long) currentXp - previousXp;
+			if (isCombatSkill(skill))
+			{
+				debugAward(String.format(
+					"Ignored +%s combat skill XP (%s)",
+					NumberFormatting.format(xpGained), skill.getName()));
+			}
+			else
+			{
+				applyXpGain(xpGained, skill.getName());
+			}
 		}
 		previousSkillXp[skillIndex] = currentXp;
 	}
@@ -484,6 +516,11 @@ public class CreditAwardService
 	private boolean isOverallSkill(Skill skill)
 	{
 		return skill != null && "Overall".equalsIgnoreCase(skill.getName());
+	}
+
+	private boolean isCombatSkill(Skill skill)
+	{
+		return skill != null && COMBAT_SKILLS.contains(skill);
 	}
 
 
