@@ -442,7 +442,7 @@ public class OsrsTcgPlugin extends Plugin
 			if (!stateService.isDebugLogging())
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-					"[OSRS TCG] ::tcg-set requires debug mode",
+					"[OSRS TCG] That command requires Overview debug mode.",
 					null);
 				return;
 			}
@@ -461,7 +461,7 @@ public class OsrsTcgPlugin extends Plugin
 			if (!stateService.isDebugLogging())
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-					"[OSRS TCG] ::tcg-give requires debug mode",
+					"[OSRS TCG] That command requires Overview debug mode.",
 					null);
 				return;
 			}
@@ -474,7 +474,7 @@ public class OsrsTcgPlugin extends Plugin
 			if (!stateService.isDebugLogging())
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-					"[OSRS TCG] ::tcg-apex requires debug mode",
+					"[OSRS TCG] That command requires Overview debug mode.",
 					null);
 				return;
 			}
@@ -487,7 +487,7 @@ public class OsrsTcgPlugin extends Plugin
 			if (!stateService.isDebugLogging())
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-					"[OSRS TCG] ::tcg-complete requires debug mode",
+					"[OSRS TCG] That command requires Overview debug mode.",
 					null);
 				return;
 			}
@@ -667,7 +667,7 @@ public class OsrsTcgPlugin extends Plugin
 		if (arguments == null || arguments.length == 0)
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-				"[OSRS TCG] Usage: ::tcg-give <card name>  or  ::tcg-give <card name> (foil)", null);
+				"[OSRS TCG] Provide a card name, optionally followed by (foil).", null);
 			return;
 		}
 
@@ -679,7 +679,7 @@ public class OsrsTcgPlugin extends Plugin
 		if (joined.isEmpty())
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-				"[OSRS TCG] Usage: ::tcg-give <card name>  or  ::tcg-give <card name> (foil)", null);
+				"[OSRS TCG] Provide a card name, optionally followed by (foil).", null);
 			return;
 		}
 
@@ -688,7 +688,7 @@ public class OsrsTcgPlugin extends Plugin
 		if (cardQuery.isEmpty())
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-				"[OSRS TCG] Usage: ::tcg-give <card name>  or  ::tcg-give <card name> (foil)", null);
+				"[OSRS TCG] Provide a card name, optionally followed by (foil).", null);
 			return;
 		}
 
@@ -725,7 +725,7 @@ public class OsrsTcgPlugin extends Plugin
 		if (arguments == null || arguments.length < 1)
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-				"[OSRS TCG] Usage: ::tcg-set <credits>", null);
+				"[OSRS TCG] Provide a credit amount.", null);
 			return;
 		}
 
@@ -738,7 +738,7 @@ public class OsrsTcgPlugin extends Plugin
 		catch (NumberFormatException ex)
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-				"[OSRS TCG] Invalid credit amount. Usage: ::tcg-set <credits>", null);
+				"[OSRS TCG] Invalid credit amount.", null);
 			return;
 		}
 

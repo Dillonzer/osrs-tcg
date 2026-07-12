@@ -504,13 +504,18 @@ public class CreditAwardService
 
 	private void debugAward(String message)
 	{
-		if (!stateService.isDebugChatEnabled())
+		boolean chat = stateService.isDebugChatEnabled();
+		boolean trace = stateService.isDebugTracingActive();
+		if (!chat && !trace)
 		{
 			return;
 		}
 
 		log.info("[OSRS TCG] {}", message);
-		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "[OSRS TCG] " + message, null);
+		if (chat)
+		{
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "[OSRS TCG] " + message, null);
+		}
 	}
 
 	private boolean isOverallSkill(Skill skill)

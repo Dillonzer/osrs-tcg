@@ -1,5 +1,6 @@
 package com.osrstcg.service;
 
+import com.osrstcg.OsrsTcgConfig;
 import com.osrstcg.model.CardCollectionKey;
 import com.osrstcg.model.CollectionState;
 import com.osrstcg.model.OwnedCardInstance;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 
@@ -30,20 +32,26 @@ public class TcgStateService
 {
 	private final TcgStateStore stateStore;
 	private final boolean runeliteDeveloperMode;
+	private final Provider<OsrsTcgConfig> config;
 	private volatile TcgState state = TcgState.empty();
 	private Runnable rewardTuningFlushBeforeCredits;
 
 	@Inject
-	public TcgStateService(TcgStateStore stateStore, @Named("developerMode") boolean runeliteDeveloperMode)
+	public TcgStateService(
+		TcgStateStore stateStore,
+		@Named("developerMode") boolean runeliteDeveloperMode,
+		Provider<OsrsTcgConfig> config)
 	{
 		this.stateStore = stateStore;
 		this.runeliteDeveloperMode = runeliteDeveloperMode;
+		this.config = config;
 	}
 
 	TcgStateService(TcgState initialState)
 	{
 		this.stateStore = null;
 		this.runeliteDeveloperMode = false;
+		this.config = null;
 		this.state = initialState == null ? TcgState.empty() : initialState;
 	}
 
@@ -162,10 +170,16 @@ public class TcgStateService
 		return state.isDebugLogging();
 	}
 
-	/** Debug chat/log output: plugin debug mode, or RuneLite {@code --developer-mode}. */
+	/** Whether Overview debug mode is active (console tracing for credit awards). */
+	public boolean isDebugTracingActive()
+	{
+		return state.isDebugLogging();
+	}
+
+	/** In-game debug chat: controlled only by the plugin settings debug-messages toggle. */
 	public boolean isDebugChatEnabled()
 	{
-		return state.isDebugLogging() || runeliteDeveloperMode;
+		return config != null && config.get().debugMessages();
 	}
 
 	public synchronized void setDebugLogging(boolean enabled)

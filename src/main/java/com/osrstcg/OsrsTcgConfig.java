@@ -174,4 +174,15 @@ public interface OsrsTcgConfig extends Config
 	{
 		return new Color(0xC4, 0x94, 0x1A);
 	}
+
+	@ConfigItem(
+		keyName = "debugMessages",
+		name = "Debug messages",
+		description = "Show detailed credit-award lines in game chat.",
+		position = 16
+	)
+	default boolean debugMessages()
+	{
+		return false;
+	}
 }

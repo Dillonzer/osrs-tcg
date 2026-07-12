@@ -1132,7 +1132,7 @@ public class TcgPanel extends PluginPanel
 		cb.setFont(FontManager.getRunescapeSmallFont());
 		cb.setAlignmentX(LEFT_ALIGNMENT);
 		cb.setSelected(stateService.isDebugLogging());
-		cb.setToolTipText("Extra logging, credit chat lines, free debug booster, ::tcg-set, ::tcg-give, ::tcg-apex, and ::tcg-complete.");
+		cb.setToolTipText("Enables developer testing features.");
 		cb.addActionListener(e -> persistDebugLogging(cb.isSelected()));
 		return cb;
 	}
