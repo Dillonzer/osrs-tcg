@@ -9,6 +9,7 @@ import com.osrstcg.model.OwnedCardInstance;
 import com.osrstcg.model.TcgState;
 import com.osrstcg.service.CardPartyTransferService;
 import com.osrstcg.service.DuplicateSellCredits;
+import com.osrstcg.service.RarityMath;
 import com.osrstcg.service.TcgStateService;
 import com.osrstcg.service.WikiImageCacheService;
 import com.osrstcg.ui.SharedCardRenderer;
@@ -828,7 +829,7 @@ public final class CollectionAlbumWindow extends JFrame
 		switch (mode)
 		{
 			case SCORE_DESC:
-				working.sort(Comparator.<CardDefinition>comparingDouble(SharedCardRenderer::cardDisplayScore)
+				working.sort(Comparator.<CardDefinition>comparingDouble(c -> albumSortScore(owned, c))
 					.reversed()
 					.thenComparing(byName));
 				break;
@@ -1002,6 +1003,20 @@ public final class CollectionAlbumWindow extends JFrame
 			}
 		}
 		return names;
+	}
+
+	/** Score for album sort: foil-adjusted when the player owns a foil copy, else base score. */
+	private static double albumSortScore(Map<CardCollectionKey, Integer> owned, CardDefinition card)
+	{
+		if (card == null)
+		{
+			return 0.0d;
+		}
+		if (hasFoilOwned(owned, card.getName()))
+		{
+			return RarityMath.foilAdjustedScoreRounded(card);
+		}
+		return RarityMath.score(card);
 	}
 
 	private static boolean hasFoilOwned(Map<CardCollectionKey, Integer> owned, String cardName)
