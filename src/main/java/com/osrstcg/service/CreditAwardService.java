@@ -349,8 +349,8 @@ public class CreditAwardService
 
 		addCredits(credits);
 		uncreditedXp -= xpCredited;
-		debugAward(String.format("XP drop +%s (%s, chunks of %s) -> +%s credits (total %s)",
-			NumberFormatting.format(xpCredited), safeName(source), NumberFormatting.format(XP_PER_CREDIT_CHUNK),
+		debugAward(String.format("XP drop +%s (%s) -> +%s credits (total %s)",
+			NumberFormatting.format(xpCredited), safeName(source),
 			NumberFormatting.format(credits), NumberFormatting.format(stateService.getCredits())));
 		return true;
 	}
