@@ -45,6 +45,9 @@ public final class GameMessageCreditTracker
 	private static final long PHANTOM_MUSPAH_KILL_CREDITS = 741L;
 	private static final String PHANTOM_MUSPAH_KILL_PREFIX = "Your Phantom Muspah kill count is:";
 
+	private static final long ABYSSAL_SIRE_KILL_CREDITS = 350L;
+	private static final String ABYSSAL_SIRE_KILL_PREFIX = "Your Abyssal Sire kill count is:";
+
 	private static final List<CreditRule> CREDIT_RULES = buildCreditRules();
 
 	private static List<CreditRule> buildCreditRules()
@@ -86,6 +89,10 @@ public final class GameMessageCreditTracker
 			PHANTOM_MUSPAH_KILL_PREFIX,
 			PHANTOM_MUSPAH_KILL_CREDITS,
 			"Phantom Muspah kill"));
+		rules.add(CreditRule.prefix(
+			ABYSSAL_SIRE_KILL_PREFIX,
+			ABYSSAL_SIRE_KILL_CREDITS,
+			"Abyssal Sire kill"));
 		return List.copyOf(rules);
 	}
 
