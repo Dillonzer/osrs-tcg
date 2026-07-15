@@ -33,4 +33,7 @@ Do not pay for cards or collections, and do not accept payment from others for t
 
 Trading cards with other players is done at your own risk.
 
+## Supporting
+
+My projects can be supported on [Patreon](https://www.patreon.com/Azderi).
 

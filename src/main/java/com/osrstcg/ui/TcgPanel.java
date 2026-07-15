@@ -120,6 +120,8 @@ public class TcgPanel extends PluginPanel
 			+ "to pay for theirs, decline and report them if appropriate.\n\n"
 			+ "Trading cards with other players is done at your own risk.";
 
+	private static final String PATREON_URL = "https://www.patreon.com/Azderi";
+
 	private enum Tab
 	{
 		WELCOME("Welcome"),
@@ -157,6 +159,11 @@ public class TcgPanel extends PluginPanel
 	private final JScrollPane welcomeScrollPane = new JScrollPane(welcomeContent);
 	private final JScrollPane shopScrollPane = new JScrollPane(packsContent);
 	private final JPanel footerPanel = new JPanel();
+	private final JPanel patreonFooterWrap = new JPanel(new BorderLayout(0, 0));
+	private final Component patreonFooterSpacer = Box.createRigidArea(new Dimension(0, 10));
+	private final JPanel albumFooterWrap = new JPanel(new BorderLayout(0, 0));
+	private final Component albumFooterSpacer = Box.createRigidArea(new Dimension(0, 10));
+	private final JPanel resetFooterWrap = new JPanel(new BorderLayout(0, 0));
 	private final JPanel titlePanel;
 	private final JButton welcomeTabButton = new JButton(Tab.WELCOME.getLabel());
 	private final JButton overviewTabButton = new JButton(Tab.OVERVIEW.getLabel());
@@ -544,7 +551,16 @@ public class TcgPanel extends PluginPanel
 			new EmptyBorder(8, 0, 0, 0)
 		));
 
-		JPanel albumWrap = new JPanel(new BorderLayout(0, 0));
+		JPanel patreonWrap = patreonFooterWrap;
+		patreonWrap.setOpaque(false);
+		JButton patreonBtn = createPatreonButton();
+		patreonWrap.add(patreonBtn, BorderLayout.CENTER);
+		clampPanelWidth(patreonWrap);
+		footerPanel.add(patreonWrap);
+
+		footerPanel.add(patreonFooterSpacer);
+
+		JPanel albumWrap = albumFooterWrap;
 		albumWrap.setOpaque(false);
 		JButton albumBtn = new JButton("Open collection album");
 		albumBtn.setFont(FontManager.getRunescapeBoldFont());
@@ -560,9 +576,9 @@ public class TcgPanel extends PluginPanel
 		clampPanelWidth(albumWrap);
 		footerPanel.add(albumWrap);
 
-		footerPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+		footerPanel.add(albumFooterSpacer);
 
-		JPanel resetWrap = new JPanel(new BorderLayout(0, 0));
+		JPanel resetWrap = resetFooterWrap;
 		resetWrap.setOpaque(false);
 		JButton resetCollectionBtn = new JButton("Reset collection");
 		resetCollectionBtn.setFont(FontManager.getRunescapeSmallFont());
@@ -577,6 +593,8 @@ public class TcgPanel extends PluginPanel
 		resetWrap.add(resetCollectionBtn, BorderLayout.CENTER);
 		clampPanelWidth(resetWrap);
 		footerPanel.add(resetWrap);
+
+		updateFooterVisibility();
 	}
 
 	private boolean shouldShowLoggedOutPrompt()
@@ -590,7 +608,6 @@ public class TcgPanel extends PluginPanel
 
 	private void showLoggedOutWelcome()
 	{
-		footerPanel.setVisible(false);
 		selectedTab = Tab.WELCOME;
 		updateTabStyles();
 		welcomeContent.removeAll();
@@ -669,6 +686,20 @@ public class TcgPanel extends PluginPanel
 		applyTabStyle(welcomeTabButton, selectedTab == Tab.WELCOME);
 		applyTabStyle(overviewTabButton, selectedTab == Tab.OVERVIEW);
 		applyTabStyle(shopTabButton, selectedTab == Tab.SHOP);
+		updateFooterVisibility();
+	}
+
+	private void updateFooterVisibility()
+	{
+		boolean inWorld = isClientInGameWorld();
+		boolean showPatreon = selectedTab == Tab.WELCOME;
+
+		footerPanel.setVisible(true);
+		patreonFooterWrap.setVisible(showPatreon);
+		patreonFooterSpacer.setVisible(showPatreon && inWorld);
+		albumFooterWrap.setVisible(inWorld);
+		albumFooterSpacer.setVisible(inWorld);
+		resetFooterWrap.setVisible(inWorld);
 	}
 
 	private void applyTabStyle(JButton button, boolean active)
@@ -769,12 +800,6 @@ public class TcgPanel extends PluginPanel
 	{
 		int w = liveSidebarContentWidth();
 		target.add(buildTcgWelcomeBlurb(w), BorderLayout.NORTH);
-
-		JButton discordButton = createDiscordButton(w);
-		if (discordButton != null)
-		{
-			target.add(discordButton, BorderLayout.SOUTH);
-		}
 	}
 
 	private void renderOverviewTab(JPanel target)
@@ -1238,6 +1263,15 @@ public class TcgPanel extends PluginPanel
 		wrap.add(head);
 
 		wrap.add(buildWelcomeTextArea(w, TCG_WELCOME_BODY, 6));
+
+		JButton discordButton = createDiscordButton(w);
+		if (discordButton != null)
+		{
+			discordButton.setAlignmentX(LEFT_ALIGNMENT);
+			wrap.add(Box.createRigidArea(new Dimension(0, 8)));
+			wrap.add(discordButton);
+		}
+
 		wrap.add(buildWelcomeTextArea(w, TCG_WELCOME_TCG_COMMAND_BODY, 10));
 		wrap.add(buildWelcomeTextArea(w, TCG_WELCOME_CARD_VALUES_BODY, 10));
 		wrap.add(buildWelcomeTextArea(w, TCG_WELCOME_BETA_BODY, 10));
@@ -1966,6 +2000,40 @@ public class TcgPanel extends PluginPanel
 		panel.setAlignmentX(LEFT_ALIGNMENT);
 		Dimension preferred = panel.getPreferredSize();
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
+	}
+
+	private static JButton createPatreonButton()
+	{
+		JPanel content = new JPanel();
+		content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+		content.setOpaque(false);
+
+		JLabel top = new JLabel("Support my projects on", SwingConstants.CENTER);
+		top.setFont(FontManager.getRunescapeSmallFont());
+		top.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		top.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+		JLabel bottom = new JLabel("PATREON", SwingConstants.CENTER);
+		bottom.setFont(FontManager.getRunescapeBoldFont());
+		bottom.setForeground(Color.WHITE);
+		bottom.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+		content.add(top);
+		content.add(bottom);
+
+		JButton button = new JButton();
+		button.setLayout(new BorderLayout());
+		button.add(content, BorderLayout.CENTER);
+		button.setFocusable(false);
+		button.setFocusPainted(false);
+		button.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+		button.setBorder(new CompoundBorder(
+			new MatteBorder(1, 1, 1, 1, ColorScheme.LIGHT_GRAY_COLOR.darker()),
+			new EmptyBorder(8, 14, 8, 14)
+		));
+		button.setToolTipText("Support on Patreon");
+		button.addActionListener(e -> LinkBrowser.browse(PATREON_URL));
+		return button;
 	}
 
 	private static JButton createDiscordButton(int contentMaxW)
