@@ -905,7 +905,7 @@ public final class CollectionAlbumWindow extends JFrame
 	{
 		int startN = filteredTotal == 0 ? 0 : from + 1;
 		int endN = filteredTotal == 0 ? 0 : to;
-		pageLabel.setText(String.format("Page %s / %s   (%s–%s of %s)",
+		pageLabel.setText(String.format("Page %s / %s   (%s - %s of %s)",
 			NumberFormatting.format(pageIndex + 1), NumberFormatting.format(pageCount),
 			NumberFormatting.format(startN), NumberFormatting.format(endN), NumberFormatting.format(filteredTotal)));
 		prevBtn.setEnabled(pageIndex > 0);
