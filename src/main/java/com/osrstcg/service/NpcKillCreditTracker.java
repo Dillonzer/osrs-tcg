@@ -54,6 +54,7 @@ public final class NpcKillCreditTracker
 		NpcExclusionRule.npcIds(ExcludedNpcIds.PHANTOM_MUSPAH),
 		NpcExclusionRule.exactName("Abyssal Sire"),
 		NpcExclusionRule.npcIds(ExcludedNpcIds.ABYSSAL_SIRE),
+		NpcExclusionRule.npcIds(ExcludedNpcIds.THE_GAUNTLET),
 	};
 
 	private final Client client;
@@ -286,6 +287,11 @@ public final class NpcKillCreditTracker
 		/** Abyssal Sire — all phases (kill credits via {@link GameMessageCreditTracker}). */
 		static final Set<Integer> ABYSSAL_SIRE = Set.of(
 			5886, 5887, 5888, 5889, 5890, 5891, 5908);
+
+		/** The Gauntlet — crystalline/corrupted creatures and tornadoes (credits via {@link GameMessageCreditTracker}). */
+		static final Set<Integer> THE_GAUNTLET = Set.of(
+			9021, 9022, 9023, 9024, 9025, 9026, 9027, 9028, 9029, 9030, 9031, 9032, 9033, 9034,
+			9035, 9036, 9037, 9038, 9039, 9040, 9041, 9042, 9043, 9044, 9046, 9047, 9048);
 
 		private ExcludedNpcIds()
 		{

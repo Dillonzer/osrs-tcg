@@ -24,6 +24,12 @@ public final class GameMessageCreditTracker
 	private static final long CHAMBERS_OF_XERIC_COMPLETION_CREDITS = 12_500L;
 	private static final String CHAMBERS_OF_XERIC_COMPLETION_PREFIX = "Your completed Chambers of Xeric count is:";
 
+	private static final long GAUNTLET_COMPLETION_CREDITS = 1_750L;
+	private static final String GAUNTLET_COMPLETION_PREFIX = "Your Gauntlet completion count is:";
+
+	private static final long CORRUPTED_GAUNTLET_COMPLETION_CREDITS = 4_500L;
+	private static final String CORRUPTED_GAUNTLET_COMPLETION_PREFIX = "Your Corrupted Gauntlet completion count is:";
+
 	private static final long ALCHEMICAL_HYDRA_KILL_CREDITS = 426L;
 	private static final String ALCHEMICAL_HYDRA_KILL_PREFIX = "Your Alchemical Hydra kill count is:";
 
@@ -61,6 +67,14 @@ public final class GameMessageCreditTracker
 			CHAMBERS_OF_XERIC_COMPLETION_PREFIX,
 			CHAMBERS_OF_XERIC_COMPLETION_CREDITS,
 			"Chambers of Xeric completion"));
+		rules.add(CreditRule.prefix(
+			GAUNTLET_COMPLETION_PREFIX,
+			GAUNTLET_COMPLETION_CREDITS,
+			"The Gauntlet completion"));
+		rules.add(CreditRule.prefix(
+			CORRUPTED_GAUNTLET_COMPLETION_PREFIX,
+			CORRUPTED_GAUNTLET_COMPLETION_CREDITS,
+			"Corrupted Gauntlet completion"));
 		rules.add(CreditRule.prefix(
 			ALCHEMICAL_HYDRA_KILL_PREFIX,
 			ALCHEMICAL_HYDRA_KILL_CREDITS,
