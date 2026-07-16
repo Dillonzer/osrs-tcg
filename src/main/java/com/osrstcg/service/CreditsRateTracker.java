@@ -32,10 +32,24 @@ public class CreditsRateTracker
 
 	/**
 	 * @return last credits/h computed on a credit drop, or {@code null} until at least
-	 * {@value #MIN_DROPS_TO_SHOW} drops are in the 5-minute window
+	 * {@value #MIN_DROPS_TO_SHOW} drops are in the 5-minute window, or after 5 minutes
+	 * with no new drops
 	 */
 	public synchronized Long creditsPerHourOrNull()
 	{
+		if (cachedCreditsPerHour == null || drops.isEmpty())
+		{
+			return null;
+		}
+
+		long now = System.currentTimeMillis();
+		if (now - drops.peekLast().timeMs >= WINDOW_MS)
+		{
+			cachedCreditsPerHour = null;
+			prune(now);
+			return null;
+		}
+
 		return cachedCreditsPerHour;
 	}
 
