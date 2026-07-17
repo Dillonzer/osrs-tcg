@@ -69,12 +69,16 @@ import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTextArea;
+import javax.swing.JTextPane;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -1379,39 +1383,48 @@ public class TcgPanel extends PluginPanel
 		return ta;
 	}
 
-	private static JTextArea buildWelcomeTextArea(int contentMaxW, String text, int topGap)
+	private static JTextPane buildWelcomeTextArea(int contentMaxW, String text, int topGap)
 	{
 		return buildWelcomeTextArea(contentMaxW, text, topGap, new Color(0xBBBBBB), 0);
 	}
 
-	private static JTextArea buildWelcomeTextArea(int contentMaxW, String text, int topGap, int bottomGap)
+	private static JTextPane buildWelcomeTextArea(int contentMaxW, String text, int topGap, int bottomGap)
 	{
 		return buildWelcomeTextArea(contentMaxW, text, topGap, new Color(0xBBBBBB), bottomGap);
 	}
 
-	private static JTextArea buildWelcomeTextArea(int contentMaxW, String text, int topGap, Color foreground)
+	private static JTextPane buildWelcomeTextArea(int contentMaxW, String text, int topGap, Color foreground)
 	{
 		return buildWelcomeTextArea(contentMaxW, text, topGap, foreground, 0);
 	}
 
-	private static JTextArea buildWelcomeTextArea(int contentMaxW, String text, int topGap, Color foreground, int bottomGap)
+	private static JTextPane buildWelcomeTextArea(int contentMaxW, String text, int topGap, Color foreground, int bottomGap)
 	{
 		int w = Math.max(1, contentMaxW);
-		JTextArea ta = new JTextArea(text);
-		ta.setEditable(false);
-		ta.setOpaque(false);
-		ta.setFocusable(false);
-		ta.setForeground(foreground);
-		ta.setFont(FontManager.getRunescapeSmallFont());
-		ta.setLineWrap(true);
-		ta.setWrapStyleWord(true);
-		ta.setBorder(new EmptyBorder(topGap, 0, bottomGap, 0));
-		ta.setAlignmentX(LEFT_ALIGNMENT);
-		ta.setSize(w, Short.MAX_VALUE);
-		int bodyH = ta.getPreferredSize().height;
-		ta.setPreferredSize(new Dimension(w, bodyH));
-		ta.setMaximumSize(new Dimension(w, bodyH));
-		return ta;
+		JTextPane tp = new JTextPane();
+		tp.setEditable(false);
+		tp.setOpaque(false);
+		tp.setFocusable(false);
+		tp.setForeground(foreground);
+		tp.setFont(FontManager.getRunescapeSmallFont());
+		tp.setText(text);
+		tp.setBorder(new EmptyBorder(topGap, 0, bottomGap, 0));
+		tp.setAlignmentX(CENTER_ALIGNMENT);
+
+		SimpleAttributeSet attrs = new SimpleAttributeSet();
+		StyleConstants.setAlignment(attrs, StyleConstants.ALIGN_CENTER);
+		StyleConstants.setFontFamily(attrs, tp.getFont().getFamily());
+		StyleConstants.setFontSize(attrs, tp.getFont().getSize());
+		StyleConstants.setForeground(attrs, foreground);
+		StyledDocument doc = tp.getStyledDocument();
+		doc.setParagraphAttributes(0, doc.getLength(), attrs, false);
+		doc.setCharacterAttributes(0, doc.getLength(), attrs, false);
+
+		tp.setSize(w, Short.MAX_VALUE);
+		int bodyH = tp.getPreferredSize().height;
+		tp.setPreferredSize(new Dimension(w, bodyH));
+		tp.setMaximumSize(new Dimension(w, bodyH));
+		return tp;
 	}
 
 	private static JPanel buildTcgWelcomeBlurb(int contentMaxW)
@@ -1421,13 +1434,14 @@ public class TcgPanel extends PluginPanel
 		JPanel wrap = new JPanel();
 		wrap.setLayout(new BoxLayout(wrap, BoxLayout.Y_AXIS));
 		wrap.setOpaque(false);
-		wrap.setAlignmentX(LEFT_ALIGNMENT);
+		wrap.setAlignmentX(CENTER_ALIGNMENT);
 		wrap.setBorder(new EmptyBorder(8, 0, 0, 0));
 
 		JLabel head = new JLabel(TCG_WELCOME_HEADER);
 		head.setForeground(Color.WHITE);
 		head.setFont(FontManager.getRunescapeBoldFont());
-		head.setAlignmentX(LEFT_ALIGNMENT);
+		head.setHorizontalAlignment(SwingConstants.CENTER);
+		head.setAlignmentX(CENTER_ALIGNMENT);
 		wrap.add(head);
 
 		wrap.add(buildWelcomeTextArea(w, TCG_WELCOME_BODY, 6));
@@ -1435,7 +1449,7 @@ public class TcgPanel extends PluginPanel
 		JButton discordButton = createDiscordButton(w);
 		if (discordButton != null)
 		{
-			discordButton.setAlignmentX(LEFT_ALIGNMENT);
+			discordButton.setAlignmentX(CENTER_ALIGNMENT);
 			wrap.add(Box.createRigidArea(new Dimension(0, 8)));
 			wrap.add(discordButton);
 		}
@@ -1448,7 +1462,8 @@ public class TcgPanel extends PluginPanel
 		JLabel disclaimerHead = new JLabel(TCG_WELCOME_DISCLAIMER_HEADER);
 		disclaimerHead.setForeground(Color.WHITE);
 		disclaimerHead.setFont(FontManager.getRunescapeBoldFont());
-		disclaimerHead.setAlignmentX(LEFT_ALIGNMENT);
+		disclaimerHead.setHorizontalAlignment(SwingConstants.CENTER);
+		disclaimerHead.setAlignmentX(CENTER_ALIGNMENT);
 		disclaimerHead.setBorder(new EmptyBorder(10, 0, 0, 0));
 		wrap.add(disclaimerHead);
 
@@ -1466,18 +1481,30 @@ public class TcgPanel extends PluginPanel
 		refresh();
 	}
 
+	private static final int TAB_SCROLLBAR_WIDTH = 6;
+	private static final int TAB_SCROLLBAR_GAP = 10;
+	private static final int TAB_SCROLLBAR_RESERVED_WIDTH = TAB_SCROLLBAR_WIDTH + TAB_SCROLLBAR_GAP;
+
 	/** Usable width inside the plugin sidebar (matches shop grid / booster buttons); leaves room for the tab scroll panes' vertical scrollbar so content isn't clipped once it appears. */
 	private static int sidebarInnerWidth()
 	{
-		return Math.max(160, PluginPanel.PANEL_WIDTH - 2 * PluginPanel.BORDER_OFFSET - PluginPanel.SCROLLBAR_WIDTH);
+		return Math.max(160, PluginPanel.PANEL_WIDTH - 2 * PluginPanel.BORDER_OFFSET - TAB_SCROLLBAR_RESERVED_WIDTH);
 	}
 
 	/**
-	 * Horizontal space for tab content: prefers live {@link #getWidth()} so resizable sidebars fill correctly;
-	 * falls back to {@link #sidebarInnerWidth()} before the panel is laid out.
+	 * Horizontal space for tab content. Prefers the tab scroll panes' actual, already-laid-out viewport width
+	 * (guaranteed to match reality, however wide the real scrollbar ends up rendering) over estimating it from
+	 * {@link #getWidth()} minus a handful of assumed constants, which can drift from the real value and clip text.
+	 * Falls back to that estimate only before the panes have ever been shown.
 	 */
 	private int liveSidebarContentWidth()
 	{
+		int viewportWidth = Math.max(welcomeScrollPane.getViewport().getWidth(), shopScrollPane.getViewport().getWidth());
+		if (viewportWidth > 0)
+		{
+			return Math.max(80, viewportWidth - TAB_SCROLLBAR_GAP);
+		}
+
 		Insets pi = getInsets();
 		int raw = getWidth() - pi.left - pi.right;
 		if (raw <= 0)
@@ -1485,7 +1512,7 @@ public class TcgPanel extends PluginPanel
 			return sidebarInnerWidth();
 		}
 		int mainPanelHorizontalPad = 12;
-		return Math.max(80, raw - mainPanelHorizontalPad - PluginPanel.SCROLLBAR_WIDTH);
+		return Math.max(80, raw - mainPanelHorizontalPad - TAB_SCROLLBAR_RESERVED_WIDTH);
 	}
 
 	private static void configureTabScrollPane(JScrollPane scrollPane)
@@ -1501,7 +1528,7 @@ public class TcgPanel extends PluginPanel
 		vbar.setUnitIncrement(16);
 		vbar.setOpaque(false);
 		vbar.putClientProperty(FlatClientProperties.STYLE,
-			"width:6; trackArc:999; thumbArc:999; trackInsets:0,2,0,2; thumbInsets:0,2,0,2; "
+			"width:" + TAB_SCROLLBAR_WIDTH + "; trackArc:999; thumbArc:999; trackInsets:0,2,0,2; thumbInsets:0,2,0,2; "
 				+ "track:#00000000; thumb:#4D4D4D; hoverThumbColor:#787878; showButtons:false");
 				
 		scrollPane.addHierarchyListener(e ->
