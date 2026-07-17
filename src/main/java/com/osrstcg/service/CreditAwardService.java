@@ -69,13 +69,13 @@ public class CreditAwardService
 
 	/**
 	 * Call when the RuneScape profile (or persisted plugin state) changes so we do not compare XP across characters.
+	 * Arms the same credit-award cooldown as a login/world-hop so any {@link StatChanged} events still in flight for
+	 * the previous profile (or arriving before fresh baselines are snapshotted) cannot be credited against stale data.
 	 */
 	public void resetExperienceCreditBaseline()
 	{
-		clearUncreditedXpPool("profile change");
-		skillXpInitialized = false;
-		Arrays.fill(previousSkillXp, 0);
-		snapshotSkillBaselinesIfLoggedIn();
+		beginCreditAwardCooldown();
+		resetSkillCreditTracking(true, "profile change");
 	}
 
 	public void awardNpcKillCredits(String npcName, int combatLevel)
@@ -301,7 +301,13 @@ public class CreditAwardService
 		if (skillXpInitialized && currentXp > previousXp)
 		{
 			long xpGained = (long) currentXp - previousXp;
-			if (isCombatSkill(skill))
+			if (isCreditAwardOnCooldown())
+			{
+				debugAward(String.format(
+					"Ignored +%s XP (%s) while credit award cooldown is active",
+					NumberFormatting.format(xpGained), skill.getName()));
+			}
+			else if (isCombatSkill(skill))
 			{
 				debugAward(String.format(
 					"Ignored +%s combat skill XP (%s)",
@@ -370,7 +376,7 @@ public class CreditAwardService
 	private void suppressCreditAwardsUntilStatsSettle(boolean clearUncreditedXpPool)
 	{
 		beginCreditAwardCooldown();
-		resetSkillCreditTracking(clearUncreditedXpPool);
+		resetSkillCreditTracking(clearUncreditedXpPool, "login or logout");
 	}
 
 	private void beginCreditAwardCooldown()
@@ -407,14 +413,14 @@ public class CreditAwardService
 		return true;
 	}
 
-	private void resetSkillCreditTracking(boolean clearUncreditedXpPool)
+	private void resetSkillCreditTracking(boolean clearUncreditedXpPool, String reason)
 	{
 		lastKnownLevels.clear();
 		skillLevelsInitialized = false;
 		skillXpInitialized = false;
 		if (clearUncreditedXpPool)
 		{
-			clearUncreditedXpPool("login or logout");
+			clearUncreditedXpPool(reason);
 		}
 		Arrays.fill(previousSkillXp, 0);
 	}
