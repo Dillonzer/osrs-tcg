@@ -233,15 +233,10 @@ public class PackRevealOverlay extends Overlay
 		for (int i : drawOrder)
 		{
 			PackRevealService.RevealCard card = cards.get(i);
-			Rectangle r = bounds.get(i);
-			boolean faceUp = snap.isCardRevealed(i);
-			double lift = faceUp ? 0.0d : ((i >= 0 && i < cardHoverLift.length) ? cardHoverLift[i] : 0.0d);
-			if (!faceUp && lift > 0.0d)
-			{
-				double scale = 1.0d + (HOVER_CARD_SCALE - 1.0d) * lift;
-				r = scaleRectCentered(r, scale);
-			}
-			
+			RevealCardVisual visual = revealCardVisual(i, bounds.get(i), snap);
+			Rectangle r = visual.rect;
+			boolean faceUp = visual.faceUp;
+			double lift = visual.lift;
 			float glowAlpha = faceUp ? HOVER_RARITY_GLOW_ALPHA : (float) (HOVER_RARITY_GLOW_ALPHA * lift);
 
 			if(config.packRarityHighlight() || (faceUp && !config.packRarityHighlight()))
@@ -260,23 +255,61 @@ public class PackRevealOverlay extends Overlay
 					linked,
 					card.getBasePullDenominator(),
 					card.getPull().isFoil());
+			}
+			else
+			{
+				SharedCardRenderer.drawCardBack(graphics, r, card.getPull().isFoil(), card.getRarityColor());
+			}
+		}
+		for (int i : drawOrder)
+		{
+			PackRevealService.RevealCard card = cards.get(i);
+			RevealCardVisual visual = revealCardVisual(i, bounds.get(i), snap);
+			Rectangle r = visual.rect;
+			boolean faceUp = visual.faceUp;
+			double lift = visual.lift;
+			if (faceUp)
+			{
 				if (card.isNew())
 				{
 					drawNewBadge(graphics, r);
 				}
 			}
-			else
+			else if (config.packRarityText() && lift > 0.001d)
 			{
-				SharedCardRenderer.drawCardBack(graphics, r, card.getPull().isFoil(), card.getRarityColor());
-				if (config.packRarityText() && lift > 0.001d)
-				{
-					drawRarityLabel(graphics, r, card.getTier().getLabel(), card.getRarityColor(), (float) lift);
-				}
+				drawRarityLabel(graphics, r, card.getTier().getLabel(), card.getRarityColor(), (float) lift);
 			}
 		}
 
 		paintScrollHintOnTop(graphics, canvas, snap);
 		return null;
+	}
+
+	private RevealCardVisual revealCardVisual(int index, Rectangle baseBounds, PackRevealService.RevealPaintSnapshot snap)
+	{
+		boolean faceUp = snap.isCardRevealed(index);
+		double lift = faceUp ? 0.0d : ((index >= 0 && index < cardHoverLift.length) ? cardHoverLift[index] : 0.0d);
+		Rectangle r = baseBounds;
+		if (!faceUp && lift > 0.0d)
+		{
+			double scale = 1.0d + (HOVER_CARD_SCALE - 1.0d) * lift;
+			r = scaleRectCentered(r, scale);
+		}
+		return new RevealCardVisual(r, faceUp, lift);
+	}
+
+	private static final class RevealCardVisual
+	{
+		private final Rectangle rect;
+		private final boolean faceUp;
+		private final double lift;
+
+		private RevealCardVisual(Rectangle rect, boolean faceUp, double lift)
+		{
+			this.rect = rect;
+			this.faceUp = faceUp;
+			this.lift = lift;
+		}
 	}
 
 	public Rectangle currentPackBounds()
