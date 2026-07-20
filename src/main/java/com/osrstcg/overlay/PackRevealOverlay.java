@@ -233,15 +233,10 @@ public class PackRevealOverlay extends Overlay
 		for (int i : drawOrder)
 		{
 			PackRevealService.RevealCard card = cards.get(i);
-			Rectangle r = bounds.get(i);
-			boolean faceUp = snap.isCardRevealed(i);
-			double lift = faceUp ? 0.0d : ((i >= 0 && i < cardHoverLift.length) ? cardHoverLift[i] : 0.0d);
-			if (!faceUp && lift > 0.0d)
-			{
-				double scale = 1.0d + (HOVER_CARD_SCALE - 1.0d) * lift;
-				r = scaleRectCentered(r, scale);
-			}
-			
+			RevealCardVisual visual = revealCardVisual(i, bounds.get(i), snap);
+			Rectangle r = visual.rect;
+			boolean faceUp = visual.faceUp;
+			double lift = visual.lift;
 			float glowAlpha = faceUp ? HOVER_RARITY_GLOW_ALPHA : (float) (HOVER_RARITY_GLOW_ALPHA * lift);
 
 			if(config.packRarityHighlight() || (faceUp && !config.packRarityHighlight()))
@@ -260,19 +255,61 @@ public class PackRevealOverlay extends Overlay
 					linked,
 					card.getBasePullDenominator(),
 					card.getPull().isFoil());
-				if (card.isNew())
-				{
-					drawNewBadge(graphics, r);
-				}
 			}
 			else
 			{
 				SharedCardRenderer.drawCardBack(graphics, r, card.getPull().isFoil(), card.getRarityColor());
 			}
 		}
+		for (int i : drawOrder)
+		{
+			PackRevealService.RevealCard card = cards.get(i);
+			RevealCardVisual visual = revealCardVisual(i, bounds.get(i), snap);
+			Rectangle r = visual.rect;
+			boolean faceUp = visual.faceUp;
+			double lift = visual.lift;
+			if (faceUp)
+			{
+				if (card.isNew())
+				{
+					drawNewBadge(graphics, r);
+				}
+			}
+			else if (config.packRarityText() && lift > 0.001d)
+			{
+				drawRarityLabel(graphics, r, card.getTier().getLabel(), card.getRarityColor(), (float) lift);
+			}
+		}
 
 		paintScrollHintOnTop(graphics, canvas, snap);
 		return null;
+	}
+
+	private RevealCardVisual revealCardVisual(int index, Rectangle baseBounds, PackRevealService.RevealPaintSnapshot snap)
+	{
+		boolean faceUp = snap.isCardRevealed(index);
+		double lift = faceUp ? 0.0d : ((index >= 0 && index < cardHoverLift.length) ? cardHoverLift[index] : 0.0d);
+		Rectangle r = baseBounds;
+		if (!faceUp && lift > 0.0d)
+		{
+			double scale = 1.0d + (HOVER_CARD_SCALE - 1.0d) * lift;
+			r = scaleRectCentered(r, scale);
+		}
+		return new RevealCardVisual(r, faceUp, lift);
+	}
+
+	private static final class RevealCardVisual
+	{
+		private final Rectangle rect;
+		private final boolean faceUp;
+		private final double lift;
+
+		private RevealCardVisual(Rectangle rect, boolean faceUp, double lift)
+		{
+			this.rect = rect;
+			this.faceUp = faceUp;
+			this.lift = lift;
+		}
 	}
 
 	public Rectangle currentPackBounds()
@@ -1031,6 +1068,32 @@ public class PackRevealOverlay extends Overlay
 			g2.setColor(new Color(0, 0, 0, 180));
 			g2.drawString(text, textX + 1, textY + 1);
 			g2.setColor(new Color(0xF2C94C));
+			g2.drawString(text, textX, textY);
+		}
+		finally
+		{
+			g2.dispose();
+		}
+	}
+
+	private void drawRarityLabel(Graphics2D g, Rectangle cardBounds, String text, Color color, float alpha)
+	{
+		float clampedAlpha = Math.max(0f, Math.min(1f, alpha));
+		if (text == null || clampedAlpha <= 0.01f)
+		{
+			return;
+		}
+
+		Graphics2D g2 = (Graphics2D) g.create();
+		try
+		{
+			g2.setFont(FontManager.getRunescapeBoldFont());
+			int textX = cardBounds.x + (cardBounds.width / 2) - (g2.getFontMetrics().stringWidth(text) / 2);
+			int textY = Math.max(14, cardBounds.y - 8);
+
+			g2.setColor(withAlpha(Color.BLACK, clampedAlpha * (180f / 255f)));
+			g2.drawString(text, textX + 1, textY + 1);
+			g2.setColor(withAlpha(color == null ? Color.WHITE : color, clampedAlpha));
 			g2.drawString(text, textX, textY);
 		}
 		finally

@@ -2,14 +2,19 @@ package com.osrstcg.persist;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.osrstcg.model.CardEntry;
+import com.osrstcg.model.CardEntrySerializer;
 import com.osrstcg.model.CollectionState;
 import com.osrstcg.model.EconomyState;
 import com.osrstcg.model.OwnedCardInstance;
 import com.osrstcg.model.RewardTuningState;
+import com.osrstcg.model.SkillCreditBaseline;
 import com.osrstcg.model.TcgState;
 import com.osrstcg.util.PackRevealZoomUtil;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import javax.inject.Inject;
@@ -60,21 +65,7 @@ public class TcgStateCodec
 
 	private TcgState parseSerializedState(SerializedState stored)
 	{
-		List<OwnedCardInstance> rows = new ArrayList<>();
-		if (stored.cardInstances != null)
-		{
-			for (SerializedInstance row : stored.cardInstances)
-			{
-				if (row == null || row.cardName == null || row.cardName.trim().isEmpty())
-				{
-					continue;
-				}
-				String id = row.id == null || row.id.trim().isEmpty() ? null : row.id.trim();
-				String by = row.pulledBy == null ? "" : row.pulledBy;
-				long at = row.pulledAt <= 0L ? 0L : row.pulledAt;
-				rows.add(new OwnedCardInstance(id, row.cardName.trim(), row.foil, by, at, row.locked));
-			}
-		}
+		List<OwnedCardInstance> rows = parseCollectionRows(stored);
 		CollectionState coll = CollectionState.copyOf(rows);
 
 		RewardTuningState tuning = RewardTuningState.mergeSerialized(
@@ -89,7 +80,14 @@ public class TcgStateCodec
 			: PackRevealZoomUtil.clamp(stored.packRevealOverlayScale);
 		int albumW = stored.albumWindowWidth == null ? 0 : stored.albumWindowWidth;
 		int albumH = stored.albumWindowHeight == null ? 0 : stored.albumWindowHeight;
+		SkillCreditBaseline skillBaseline = parseSkillCreditBaseline(stored.skillCreditBaseline);
 
+		long totalGained = stored.totalCreditsGained == null ? 0L : Math.max(0L, stored.totalCreditsGained);
+		// 0 = missing/legacy; caller may stamp "now" on first schema-5 persist.
+		long createdAt = stored.profileCreatedAtUnix == null ? 0L : Math.max(0L, stored.profileCreatedAtUnix);
+		long savedAt = stored.profileSavedAtUnix == null ? 0L : Math.max(0L, stored.profileSavedAtUnix);
+
+		// Always materialize the current schema (upgrades older profiles).
 		return new TcgState(
 			TcgState.CURRENT_SCHEMA_VERSION,
 			new EconomyState(stored.credits, stored.openedPacks),
@@ -98,18 +96,53 @@ public class TcgStateCodec
 			debug,
 			packZoom,
 			albumW,
-			albumH
+			albumH,
+			skillBaseline,
+			totalGained,
+			createdAt,
+			savedAt
 		);
+	}
+
+	private static List<OwnedCardInstance> parseCollectionRows(SerializedState stored)
+	{
+		if (stored.cardEntries != null && !stored.cardEntries.isEmpty())
+		{
+			return CardEntrySerializer.expandToInstances(stored.cardEntries);
+		}
+		return parseLegacyCardInstances(stored.cardInstances);
+	}
+
+	private static List<OwnedCardInstance> parseLegacyCardInstances(List<SerializedInstance> cardInstances)
+	{
+		List<OwnedCardInstance> rows = new ArrayList<>();
+		if (cardInstances == null)
+		{
+			return rows;
+		}
+		for (SerializedInstance row : cardInstances)
+		{
+			if (row == null || row.cardName == null || row.cardName.trim().isEmpty())
+			{
+				continue;
+			}
+			String id = row.id == null || row.id.trim().isEmpty() ? null : row.id.trim();
+			String by = row.pulledBy == null ? "" : row.pulledBy;
+			long at = row.pulledAt <= 0L ? 0L : row.pulledAt;
+			rows.add(new OwnedCardInstance(id, row.cardName.trim(), row.foil, by, at, row.locked));
+		}
+		return rows;
 	}
 
 	public String toJson(TcgState state)
 	{
 		TcgState s = Objects.requireNonNullElse(state, TcgState.empty());
 		SerializedState serialized = new SerializedState();
-		serialized.schemaVersion = s.getSchemaVersion();
+		serialized.schemaVersion = TcgState.CURRENT_SCHEMA_VERSION;
 		serialized.credits = s.getEconomyState().getCredits();
 		serialized.openedPacks = s.getEconomyState().getOpenedPacks();
-		serialized.cardInstances = new ArrayList<>();
+		serialized.cardEntries = CardEntrySerializer.buildProfileEntries(
+			s.getCollectionState().getOwnedInstances());
 
 		RewardTuningState tuning = s.getRewardTuning();
 		serialized.foilChancePercent = tuning.getFoilChancePercent();
@@ -120,20 +153,58 @@ public class TcgStateCodec
 		serialized.packRevealOverlayScale = s.getPackRevealOverlayScale();
 		serialized.albumWindowWidth = s.getAlbumWindowWidth();
 		serialized.albumWindowHeight = s.getAlbumWindowHeight();
-
-		for (OwnedCardInstance inst : s.getCollectionState().getOwnedInstances())
-		{
-			SerializedInstance row = new SerializedInstance();
-			row.id = inst.getInstanceId();
-			row.cardName = inst.getCardName();
-			row.foil = inst.isFoil();
-			row.pulledBy = inst.getPulledByUsername();
-			row.pulledAt = inst.getPulledAtEpochMs();
-			row.locked = inst.isLocked();
-			serialized.cardInstances.add(row);
-		}
+		serialized.skillCreditBaseline = serializeSkillCreditBaseline(s.getSkillCreditBaseline());
+		serialized.totalCreditsGained = s.getTotalCreditsGained();
+		serialized.profileCreatedAtUnix = s.getProfileCreatedAtUnix();
+		serialized.profileSavedAtUnix = s.getProfileSavedAtUnix();
 
 		return gson.toJson(serialized);
+	}
+
+	private static SkillCreditBaseline parseSkillCreditBaseline(SerializedSkillCreditBaseline stored)
+	{
+		if (stored == null)
+		{
+			return SkillCreditBaseline.missing();
+		}
+		// Empty placeholder written during schema upgrade — no retro awards until first settle capture.
+		if (stored.skillXp == null || stored.skillXp.isEmpty())
+		{
+			return SkillCreditBaseline.absent();
+		}
+
+		Map<String, Integer> xp = new LinkedHashMap<>();
+		for (Map.Entry<String, Integer> e : stored.skillXp.entrySet())
+		{
+			if (e.getKey() == null || e.getKey().isEmpty() || e.getValue() == null)
+			{
+				continue;
+			}
+			xp.put(e.getKey(), Math.max(0, e.getValue()));
+		}
+		if (xp.isEmpty())
+		{
+			return SkillCreditBaseline.absent();
+		}
+		long uncredited = stored.uncreditedXp == null ? 0L : Math.max(0L, stored.uncreditedXp);
+		return SkillCreditBaseline.of(xp, uncredited);
+	}
+
+	private static SerializedSkillCreditBaseline serializeSkillCreditBaseline(SkillCreditBaseline baseline)
+	{
+		SkillCreditBaseline b = baseline == null ? SkillCreditBaseline.absent() : baseline;
+		SerializedSkillCreditBaseline out = new SerializedSkillCreditBaseline();
+		if (!b.isPresent())
+		{
+			// Persist schema fields for missing/absent baselines (upgrade older profiles).
+			out.skillXp = new LinkedHashMap<>();
+			out.uncreditedXp = 0L;
+			return out;
+		}
+
+		out.skillXp = new LinkedHashMap<>(b.getSkillXpByName());
+		out.uncreditedXp = b.getUncreditedXp();
+		return out;
 	}
 
 	private static class SerializedState
@@ -141,6 +212,7 @@ public class TcgStateCodec
 		private int schemaVersion = TcgState.CURRENT_SCHEMA_VERSION;
 		private long credits;
 		private long openedPacks;
+		private List<CardEntry> cardEntries;
 		private List<SerializedInstance> cardInstances;
 		private Integer foilChancePercent;
 		private Double killCreditMultiplier;
@@ -150,8 +222,19 @@ public class TcgStateCodec
 		private Double packRevealOverlayScale;
 		private Integer albumWindowWidth;
 		private Integer albumWindowHeight;
+		private SerializedSkillCreditBaseline skillCreditBaseline;
+		private Long totalCreditsGained;
+		private Long profileCreatedAtUnix;
+		private Long profileSavedAtUnix;
 	}
 
+	private static class SerializedSkillCreditBaseline
+	{
+		private Map<String, Integer> skillXp;
+		private Long uncreditedXp;
+	}
+
+	/** Legacy schema: one row per owned copy. */
 	private static class SerializedInstance
 	{
 		private String id;

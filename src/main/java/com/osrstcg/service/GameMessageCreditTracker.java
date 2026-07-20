@@ -2,8 +2,10 @@ package com.osrstcg.service;
 
 import com.osrstcg.ui.TcgPanel;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -35,6 +37,17 @@ public final class GameMessageCreditTracker
 
 	private static final long THEATRE_OF_BLOOD_COMPLETION_CREDITS = 12_500L;
 	private static final String THEATRE_OF_BLOOD_COMPLETION_PREFIX = "Your completed Theatre of Blood count is:";
+
+	private static final long TOMBS_OF_AMASCUT_EXPERT_MODE_COMPLETION_CREDITS = 18_500L;
+	private static final String TOMBS_OF_AMASCUT_EXPERT_MODE_COMPLETION_PREFIX =
+		"Your completed Tombs of Amascut: Expert Mode count is:";
+
+	private static final long TOMBS_OF_AMASCUT_ENTRY_MODE_COMPLETION_CREDITS = 3_500L;
+	private static final String TOMBS_OF_AMASCUT_ENTRY_MODE_COMPLETION_PREFIX =
+		"Your completed Tombs of Amascut: Entry Mode count is:";
+
+	private static final long TOMBS_OF_AMASCUT_COMPLETION_CREDITS = 12_500L;
+	private static final String TOMBS_OF_AMASCUT_COMPLETION_PREFIX = "Your completed Tombs of Amascut count is:";
 
 	private static final long GAUNTLET_COMPLETION_CREDITS = 1_750L;
 	private static final String GAUNTLET_COMPLETION_PREFIX = "Your Gauntlet completion count is:";
@@ -76,6 +89,14 @@ public final class GameMessageCreditTracker
 	private static final long ELITE_TREASURE_TRAIL_CREDITS = 4_000L;
 	private static final long MASTER_TREASURE_TRAIL_CREDITS = 5_000L;
 
+	/**
+	 * Boss KC / completion lines use {@link ChatMessageType#GAMEMESSAGE} by default, but
+	 * {@link ChatMessageType#SPAM} when the in-game "Filter out boss kill-count with spam-filter" setting is on.
+	 */
+	private static final Set<ChatMessageType> CREDIT_CHAT_TYPES = EnumSet.of(
+		ChatMessageType.GAMEMESSAGE,
+		ChatMessageType.SPAM);
+
 	private static final List<CreditRule> CREDIT_RULES = buildCreditRules();
 
 	private static List<CreditRule> buildCreditRules()
@@ -101,6 +122,18 @@ public final class GameMessageCreditTracker
 			THEATRE_OF_BLOOD_COMPLETION_PREFIX,
 			THEATRE_OF_BLOOD_COMPLETION_CREDITS,
 			"Theatre of Blood completion"));
+		rules.add(CreditRule.prefix(
+			TOMBS_OF_AMASCUT_EXPERT_MODE_COMPLETION_PREFIX,
+			TOMBS_OF_AMASCUT_EXPERT_MODE_COMPLETION_CREDITS,
+			"Tombs of Amascut Expert Mode completion"));
+		rules.add(CreditRule.prefix(
+			TOMBS_OF_AMASCUT_ENTRY_MODE_COMPLETION_PREFIX,
+			TOMBS_OF_AMASCUT_ENTRY_MODE_COMPLETION_CREDITS,
+			"Tombs of Amascut Entry Mode completion"));
+		rules.add(CreditRule.prefix(
+			TOMBS_OF_AMASCUT_COMPLETION_PREFIX,
+			TOMBS_OF_AMASCUT_COMPLETION_CREDITS,
+			"Tombs of Amascut completion"));
 		rules.add(CreditRule.prefix(
 			GAUNTLET_COMPLETION_PREFIX,
 			GAUNTLET_COMPLETION_CREDITS,
@@ -176,7 +209,7 @@ public final class GameMessageCreditTracker
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (event == null || !ChatMessageType.GAMEMESSAGE.equals(event.getType()))
+		if (event == null || !CREDIT_CHAT_TYPES.contains(event.getType()))
 		{
 			return;
 		}

@@ -32,7 +32,6 @@ public final class NpcKillCreditTracker
 	/** Boss display name -> NPC ids that count as the real kill (final phase only). */
 	private static final Map<String, Set<Integer>> FINAL_PHASE_IDS = Map.ofEntries(
 		Map.entry("Kalphite Queen", Set.of(965)),
-		Map.entry("Kephri", Set.of(11722))
 	);
 
 	/** Kill-credit exclusions: exact name, name fragment (with optional exception), or NPC id. */
@@ -48,6 +47,7 @@ public final class NpcKillCreditTracker
 		NpcExclusionRule.npcIds(ExcludedNpcIds.CRACKED_ICE),
 		NpcExclusionRule.npcIds(ExcludedNpcIds.GREAT_OLM),
 		NpcExclusionRule.npcIds(ExcludedNpcIds.THEATRE_OF_BLOOD),
+		NpcExclusionRule.npcIds(ExcludedNpcIds.TOMBS_OF_AMASCUT),
 		NpcExclusionRule.exactName("The Nightmare"),
 		NpcExclusionRule.exactName("Phosani's Nightmare"),
 		NpcExclusionRule.npcIds(ExcludedNpcIds.THE_NIGHTMARE),
@@ -293,6 +293,15 @@ public final class NpcKillCreditTracker
 				java.util.stream.IntStream.rangeClosed(8338, 8389),
 				// Entry Mode and Hard Mode
 				java.util.stream.IntStream.rangeClosed(10766, 10869))
+		 * Tombs of Amascut — every NPC inside the raid (kill credits via {@link GameMessageCreditTracker}).
+		 * The raid's NPCs occupy the contiguous gameval id block TOA_SCABARAS_SCARAB (11697) through
+		 * AKKHA_SHADOW_ENRAGE_DUMMY (11799): path monsters and baboons, Kephri and her scarabs, Zebak and
+		 * his jugs/tail, all Warden phases including phase 3 and the cores, Ba-Ba with her boulders and
+		 * rubble, and Akkha with his Shadows. ToA ids outside this block are all non-combat (cutscene
+		 * models, lobby NPCs, pets, Akkha trail orbs).
+		 */
+		static final Set<Integer> TOMBS_OF_AMASCUT = java.util.stream.IntStream
+			.rangeClosed(11697, 11799)
 			.boxed()
 			.collect(java.util.stream.Collectors.toUnmodifiableSet());
 

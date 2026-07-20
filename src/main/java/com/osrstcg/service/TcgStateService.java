@@ -6,6 +6,7 @@ import com.osrstcg.model.CollectionState;
 import com.osrstcg.model.OwnedCardInstance;
 import com.osrstcg.model.PackCardResult;
 import com.osrstcg.model.RewardTuningState;
+import com.osrstcg.model.SkillCreditBaseline;
 import com.osrstcg.model.TcgState;
 import com.osrstcg.persist.TcgStateLoadResult;
 import com.osrstcg.persist.TcgStateLoadSource;
@@ -19,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -31,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class TcgStateService
 {
+	private static final long FILE_BACKUP_THROTTLE_MS = 5L * 60L * 1000L;
+
 	private final TcgStateStore stateStore;
 	private final boolean runeliteDeveloperMode;
 	private final Provider<OsrsTcgConfig> config;
@@ -39,6 +43,7 @@ public class TcgStateService
 	private volatile TcgState state = TcgState.empty();
 	private Runnable rewardTuningFlushBeforeCredits;
 	private final CopyOnWriteArrayList<Runnable> collectionChangeListeners = new CopyOnWriteArrayList<>();
+	private long lastFileBackupEpochMs;
 
 	@Inject
 	public TcgStateService(
@@ -77,6 +82,8 @@ public class TcgStateService
 
 		TcgStateLoadResult result = stateStore.load();
 		state = result.getState();
+		// Allow a file backup soon after login; plugin start may have already written one.
+		lastFileBackupEpochMs = 0L;
 		if (shouldResetDebugTaintedSave())
 		{
 			log.info("OSRS TCG: loaded profile had debug mode enabled; resetting collection and economy.");
@@ -95,17 +102,29 @@ public class TcgStateService
 			log.info("OSRS TCG: loaded profile had debug mode enabled; keeping collection (developer mode active).");
 		}
 
-		if (stripDebugProvenanceRowsIfDebugDisabled())
+		boolean strippedDebug = stripDebugProvenanceRowsIfDebugDisabled();
+		// Rewrite older profiles so persisted JSON includes skillCreditBaseline / schema-5 fields.
+		boolean upgradedSkillBaseline = ensureSkillCreditBaselineSchemaField();
+		boolean upgradedProfileMeta = ensureProfileMetaSchemaFields();
+		if (upgradedSkillBaseline)
 		{
-			save();
-			notifyCollectionShareListeners();
+			state = state.withSkillCreditBaseline(SkillCreditBaseline.absent());
+		}
+		if (strippedDebug || upgradedSkillBaseline || upgradedProfileMeta)
+		{
+			saveToProfile();
+			if (strippedDebug)
+			{
+				notifyCollectionShareListeners();
+			}
 		}
 
 		return result;
 	}
 
 	/**
-	 * Restores the most recent valid on-disk backup into memory and writes it to profile configuration.
+	 * Restores the most recent valid on-disk backup into memory and writes profile configuration
+	 * plus a file backup.
 	 *
 	 * @return true if a backup was loaded
 	 */
@@ -135,18 +154,65 @@ public class TcgStateService
 			log.info("OSRS TCG: file backup had debug mode enabled; keeping collection (developer mode active).");
 		}
 
-		if (stripDebugProvenanceRowsIfDebugDisabled())
+		boolean strippedDebug = stripDebugProvenanceRowsIfDebugDisabled();
+		if (ensureSkillCreditBaselineSchemaField())
 		{
-			save();
-			return true;
+			state = state.withSkillCreditBaseline(SkillCreditBaseline.absent());
 		}
-
-		save();
+		ensureProfileMetaSchemaFields();
+		saveToProfile();
+		if (strippedDebug)
+		{
+			notifyCollectionShareListeners();
+		}
 		return true;
 	}
 
 	/**
-	 * Persists the current in-memory state to profile configuration and a validated on-disk backup file.
+	 * Ensures older profiles that omitted skillCreditBaseline are rewritten on disk.
+	 *
+	 * @return true if the loaded profile needs a schema placeholder written on next save
+	 */
+	private boolean ensureSkillCreditBaselineSchemaField()
+	{
+		SkillCreditBaseline baseline = state.getSkillCreditBaseline();
+		if (baseline == null)
+		{
+			state = state.withSkillCreditBaseline(SkillCreditBaseline.absent());
+			return true;
+		}
+		return baseline.needsSchemaUpgradePersist();
+	}
+
+	/**
+	 * Stamps schema-5 profile metadata when missing (legacy saves).
+	 *
+	 * @return true if state was updated and should be persisted
+	 */
+	private boolean ensureProfileMetaSchemaFields()
+	{
+		boolean changed = false;
+		if (state.getProfileCreatedAtUnix() <= 0L)
+		{
+			state = state.withProfileCreatedAtUnix(TcgState.currentUnixSeconds());
+			changed = true;
+		}
+		return changed;
+	}
+
+	/** Replaces the persisted skill XP baseline in memory (does not save by itself). */
+	public synchronized void replaceSkillCreditBaseline(SkillCreditBaseline baseline)
+	{
+		SkillCreditBaseline next = baseline == null ? SkillCreditBaseline.absent() : baseline;
+		if (Objects.equals(state.getSkillCreditBaseline(), next))
+		{
+			return;
+		}
+		state = state.withSkillCreditBaseline(next);
+	}
+
+	/**
+	 * Persists the current in-memory state to a validated on-disk backup file without writing profile configuration.
 	 *
 	 * @return true if the file backup was written
 	 */
@@ -158,17 +224,54 @@ public class TcgStateService
 			return false;
 		}
 
-		save();
-		return stateStore.saveToFileBackup(state);
+		boolean written = stateStore.saveToFileBackup(state);
+		if (written)
+		{
+			lastFileBackupEpochMs = System.currentTimeMillis();
+		}
+		return written;
 	}
 
+	/**
+	 * Writes the current in-memory state to RuneLite profile configuration and a file backup.
+	 * Used on logout, plugin unload, collection reset, and manual file-backup restore.
+	 */
+	public synchronized void saveToProfile()
+	{
+		flushRewardTuningDraftBeforeLocking();
+		if (stateStore == null)
+		{
+			return;
+		}
+		state = state.withProfileSavedAtUnix(TcgState.currentUnixSeconds());
+		stateStore.save(state);
+		if (stateStore.saveToFileBackup(state))
+		{
+			lastFileBackupEpochMs = System.currentTimeMillis();
+		}
+	}
+
+	/**
+	 * Throttled on-disk file backup (at most once per 5 minutes). Does not write RuneLite profile
+	 * configuration; that happens via {@link #saveToProfile()}.
+	 */
 	public synchronized void save()
 	{
 		if (stateStore == null)
 		{
 			return;
 		}
-		stateStore.save(state);
+
+		long now = System.currentTimeMillis();
+		if (now - lastFileBackupEpochMs < FILE_BACKUP_THROTTLE_MS)
+		{
+			return;
+		}
+
+		if (stateStore.saveToFileBackup(state))
+		{
+			lastFileBackupEpochMs = now;
+		}
 	}
 
 	/** Invoked after share-relevant collection / pack mutations (web sync, interop broadcasts). */
@@ -311,7 +414,8 @@ public class TcgStateService
 
 		long creditsBefore = state.getEconomyState().getCredits();
 		long creditsAfter = creditsBefore + amount;
-		state = state.withCredits(creditsAfter);
+		long gainedAfter = state.getTotalCreditsGained() + amount;
+		state = state.withCredits(creditsAfter).withTotalCreditsGained(gainedAfter);
 		save();
 
 		if (creditsRateTracker != null)
@@ -530,7 +634,7 @@ public class TcgStateService
 	public synchronized void resetAll()
 	{
 		state = TcgState.empty();
-		save();
+		saveToProfile();
 		notifyCollectionShareListeners();
 	}
 

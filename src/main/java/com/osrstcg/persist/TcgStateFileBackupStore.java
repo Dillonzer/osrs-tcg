@@ -63,6 +63,25 @@ public class TcgStateFileBackupStore
 
 	public Optional<TcgState> loadMostRecentValid()
 	{
+		return loadMostRecentValidEntry().map(entry -> entry.state);
+	}
+
+	/**
+	 * Loads the most recent valid file backup when its last-modified time is strictly newer than
+	 * {@code writtenAtEpochMs}.
+	 */
+	public Optional<TcgState> loadMostRecentValidIfNewerThan(long writtenAtEpochMs)
+	{
+		Optional<BackupEntry> entry = loadMostRecentValidEntry();
+		if (entry.isEmpty() || entry.get().lastModifiedEpochMs <= writtenAtEpochMs)
+		{
+			return Optional.empty();
+		}
+		return Optional.of(entry.get().state);
+	}
+
+	private Optional<BackupEntry> loadMostRecentValidEntry()
+	{
 		if (!isFileBackupsEnabled())
 		{
 			return Optional.empty();
@@ -82,11 +101,23 @@ public class TcgStateFileBackupStore
 			Optional<TcgState> state = tryLoadBackupFile(file);
 			if (state.isPresent())
 			{
-				return state;
+				return Optional.of(new BackupEntry(state.get(), lastModifiedSafe(file)));
 			}
 		}
 
 		return Optional.empty();
+	}
+
+	private static final class BackupEntry
+	{
+		private final TcgState state;
+		private final long lastModifiedEpochMs;
+
+		private BackupEntry(TcgState state, long lastModifiedEpochMs)
+		{
+			this.state = state;
+			this.lastModifiedEpochMs = lastModifiedEpochMs;
+		}
 	}
 
 	boolean writeValidatedBackup(String encodedBlob, String hashHex)

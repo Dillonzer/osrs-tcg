@@ -17,6 +17,7 @@ public class TcgStateStore
 	private static final String STATE_HASH_KEY = "hash";
 	private static final String STATE_BACKUP_KEY = "stateBackup";
 	private static final String STATE_BACKUP_HASH_KEY = "hashBackup";
+	private static final String STATE_WRITTEN_AT_KEY = "stateWrittenAt";
 
 	private final ConfigManager configManager;
 	private final TcgStateCodec stateCodec;
@@ -41,6 +42,24 @@ public class TcgStateStore
 	public TcgStateLoadResult load()
 	{
 		moveOldState();
+
+		long writtenAt = readWrittenAtEpochMs();
+		// Only compare against file backups when a write timestamp exists. A missing timestamp
+		// (pre-0.16.2 profiles) must not prefer an older on-disk backup over valid primary state.
+		if (writtenAt > 0L)
+		{
+			Optional<TcgState> newerFileBackup = loadMostRecentFileBackupIfNewerThan(writtenAt);
+			if (newerFileBackup.isPresent())
+			{
+				log.warn("OSRS TCG restored state from file backup newer than profile configuration timestamp.");
+				return new TcgStateLoadResult(
+					newerFileBackup.get(),
+					TcgStateLoadSource.FILE_BACKUP,
+					false,
+					false,
+					false);
+			}
+		}
 
 		LoadAttempt primary = tryLoad(STATE_KEY, STATE_HASH_KEY);
 		if (primary.outcome == LoadOutcome.SUCCESS)
@@ -118,6 +137,15 @@ public class TcgStateStore
 		return fileBackupStore.loadMostRecentValid();
 	}
 
+	public Optional<TcgState> loadMostRecentFileBackupIfNewerThan(long writtenAtEpochMs)
+	{
+		if (fileBackupStore == null)
+		{
+			return Optional.empty();
+		}
+		return fileBackupStore.loadMostRecentValidIfNewerThan(writtenAtEpochMs);
+	}
+
 	/**
 	 * Writes the encoded state to the on-disk backup store without updating profile configuration.
 	 *
@@ -141,6 +169,9 @@ public class TcgStateStore
 		return fileBackupStore.writeBackupIfEnabled(stored);
 	}
 
+	/**
+	 * Writes state to RuneLite profile configuration, including a write timestamp.
+	 */
 	public void save(TcgState state)
 	{
 		if (state == null)
@@ -160,6 +191,7 @@ public class TcgStateStore
 		rotateBackupFromValidPrimary();
 		writeProfileScoped(STATE_KEY, stored);
 		writeProfileScoped(STATE_HASH_KEY, hashHex);
+		writeProfileScoped(STATE_WRITTEN_AT_KEY, Long.toString(System.currentTimeMillis()));
 		if (isBackupMissing())
 		{
 			writeProfileScoped(STATE_BACKUP_KEY, stored);
@@ -175,6 +207,24 @@ public class TcgStateStore
 		else if (roundTripHash == null || !hashHex.equalsIgnoreCase(roundTripHash.trim()))
 		{
 			log.error("OSRS TCG state save verification failed: hash mismatch after write.");
+		}
+	}
+
+	long readWrittenAtEpochMs()
+	{
+		String raw = getProfileScoped(STATE_WRITTEN_AT_KEY);
+		if (raw == null || raw.isEmpty())
+		{
+			return 0L;
+		}
+
+		try
+		{
+			return Long.parseLong(raw.trim());
+		}
+		catch (NumberFormatException ex)
+		{
+			return 0L;
 		}
 	}
 
