@@ -2,7 +2,6 @@ package com.osrstcg.service;
 
 import com.osrstcg.model.CardEntry;
 import com.osrstcg.model.CardEntrySerializer;
-import com.osrstcg.model.CardVariant;
 import com.osrstcg.model.CollectionState;
 import com.osrstcg.model.TcgPublicStats;
 import java.time.Instant;
@@ -70,10 +69,5 @@ public final class CollectionShareSnapshotBuilder
 		payload.put("stats", statsObject(stats));
 		payload.put("cardEntries", buildCardEntries(collectionState));
 		return payload;
-	}
-
-	static boolean isFoilVariant(CardVariant variant)
-	{
-		return variant != null && Boolean.TRUE.equals(variant.foil);
 	}
 }
