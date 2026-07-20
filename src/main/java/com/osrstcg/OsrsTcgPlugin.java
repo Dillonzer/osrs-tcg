@@ -236,7 +236,7 @@ public class OsrsTcgPlugin extends Plugin
 		collectionAlbumManager.dispose();
 		stateService.setRewardTuningFlushBeforeCredits(null);
 		tcgPanel.stop();
-		stateService.saveToFileBackup();
+		stateService.saveToProfile();
 		log.info("OSRS TCG plugin stopped");
 	}
 
@@ -262,7 +262,7 @@ public class OsrsTcgPlugin extends Plugin
 		if (gs == GameState.LOGIN_SCREEN)
 		{
 			fileBackupLoadUsedThisSession = false;
-			stateService.saveToFileBackup();
+			stateService.saveToProfile();
 		}
 		else if (gs == GameState.HOPPING)
 		{
