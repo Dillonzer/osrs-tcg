@@ -940,6 +940,7 @@ public final class CollectionAlbumWindow extends JFrame
 			(String) rarityCombo.getSelectedItem(),
 			searchField.getText().trim().toLowerCase(Locale.ROOT),
 			stateService.getState().getCollectionState().getOwnedCards(),
+			mostRecentPulledAtByCardName(stateService.getState().getCollectionState().getLastObtainedMap()),
 			foilOnlyCheck.isSelected(),
 			radObtained.isSelected(),
 			radDuplicates.isSelected(),
@@ -1021,6 +1022,12 @@ public final class CollectionAlbumWindow extends JFrame
 		{
 			case SCORE_DESC:
 				working.sort(Comparator.<CardDefinition>comparingDouble(c -> albumSortScore(owned, c))
+					.reversed()
+					.thenComparing(byName));
+				break;
+			case MOST_RECENT:
+				working.sort(Comparator.<CardDefinition>comparingLong(
+					c -> mostRecentPulledAt(inputs.mostRecentPulledAtByName, c.getName()))
 					.reversed()
 					.thenComparing(byName));
 				break;
@@ -1218,6 +1225,36 @@ public final class CollectionAlbumWindow extends JFrame
 			return RarityMath.foilAdjustedScoreRounded(card);
 		}
 		return RarityMath.score(card);
+	}
+
+	/** Max {@code pulledAt} per card name from foil/non-foil last-obtained timestamps. */
+	private static Map<String, Long> mostRecentPulledAtByCardName(Map<CardCollectionKey, Long> lastObtained)
+	{
+		Map<String, Long> byName = new HashMap<>();
+		if (lastObtained == null || lastObtained.isEmpty())
+		{
+			return byName;
+		}
+		for (Map.Entry<CardCollectionKey, Long> e : lastObtained.entrySet())
+		{
+			if (e.getKey() == null || e.getKey().getCardName() == null)
+			{
+				continue;
+			}
+			long at = e.getValue() == null ? 0L : e.getValue();
+			byName.merge(e.getKey().getCardName(), at, Math::max);
+		}
+		return byName;
+	}
+
+	private static long mostRecentPulledAt(Map<String, Long> byName, String cardName)
+	{
+		if (byName == null || cardName == null)
+		{
+			return 0L;
+		}
+		Long at = byName.get(cardName);
+		return at == null ? 0L : at;
 	}
 
 	private static boolean hasFoilOwned(Map<CardCollectionKey, Integer> owned, String cardName)
@@ -1974,6 +2011,7 @@ public final class CollectionAlbumWindow extends JFrame
 		private final String rarityPick;
 		private final String searchQuery;
 		private final Map<CardCollectionKey, Integer> owned;
+		private final Map<String, Long> mostRecentPulledAtByName;
 		private final boolean foilOnly;
 		private final boolean obtainedOnly;
 		private final boolean duplicatesOnly;
@@ -1989,6 +2027,7 @@ public final class CollectionAlbumWindow extends JFrame
 			String rarityPick,
 			String searchQuery,
 			Map<CardCollectionKey, Integer> owned,
+			Map<String, Long> mostRecentPulledAtByName,
 			boolean foilOnly,
 			boolean obtainedOnly,
 			boolean duplicatesOnly,
@@ -2003,6 +2042,7 @@ public final class CollectionAlbumWindow extends JFrame
 			this.rarityPick = rarityPick;
 			this.searchQuery = searchQuery;
 			this.owned = owned;
+			this.mostRecentPulledAtByName = mostRecentPulledAtByName;
 			this.foilOnly = foilOnly;
 			this.obtainedOnly = obtainedOnly;
 			this.duplicatesOnly = duplicatesOnly;
