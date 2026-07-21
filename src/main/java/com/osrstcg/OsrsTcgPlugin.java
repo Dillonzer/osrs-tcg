@@ -40,6 +40,7 @@ import com.osrstcg.party.TcgTradeInvitePartyMessage;
 import com.osrstcg.party.TcgTradeInviteResponsePartyMessage;
 import com.osrstcg.party.TcgTradeOfferDeltaPartyMessage;
 import com.osrstcg.party.TcgTradeReadyPartyMessage;
+import com.osrstcg.persist.TcgSaveTrigger;
 import com.osrstcg.persist.TcgStateLoadResult;
 import com.osrstcg.persist.TcgStateLoadSource;
 import com.osrstcg.service.PackRevealSoundService;
@@ -51,6 +52,7 @@ import com.osrstcg.service.TcgStateService;
 import com.osrstcg.ui.TcgPanel;
 import com.osrstcg.ui.collectionalbum.CollectionAlbumManager;
 import com.osrstcg.ui.trade.TradeWindowManager;
+import com.osrstcg.ui.save.SaveRestoreManager;
 import com.osrstcg.util.NumberFormatting;
 import com.osrstcg.util.TcgPluginGameMessages;
 import java.awt.Color;
@@ -79,6 +81,7 @@ import net.runelite.client.chat.ChatCommandManager;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.ChatInput;
 import net.runelite.client.events.RuneScapeProfileChanged;
@@ -164,6 +167,8 @@ public class OsrsTcgPlugin extends Plugin
 	@Inject
 	private TradeWindowManager tradeWindowManager;
 	@Inject
+	private SaveRestoreManager saveRestoreManager;
+	@Inject
 	private ChatCommandManager chatCommandManager;
 	@Inject
 	private ScheduledExecutorService scheduledExecutorService;
@@ -238,7 +243,6 @@ public class OsrsTcgPlugin extends Plugin
 		collectionShareService.start();
 		ownedCardNamesApiService.start();
 		tcgPanel.refresh();
-		stateService.saveToFileBackup();
 		TcgPluginGameMessages.setPrefixColor(config.chatPrefixColor());
 	}
 
@@ -281,13 +285,21 @@ public class OsrsTcgPlugin extends Plugin
 		packRevealService.reset();
 		collectionAlbumManager.dispose();
 		tradeWindowManager.dispose();
+		saveRestoreManager.dispose();
 		stateService.setRewardTuningFlushBeforeCredits(null);
 		collectionShareService.setStatusListener(null);
 		collectionShareService.stop();
 		ownedCardNamesApiService.stop();
 		tcgPanel.stop();
-		stateService.saveToProfile();
 		log.info("OSRS TCG plugin stopped");
+	}
+
+	@Subscribe
+	public void onClientShutdown(ClientShutdown event)
+	{
+		// Must write RSProfile keys synchronously before ConfigManager's ClientShutdown
+		// handler (priority -100) runs sendConfig(); an async Future finishes too late.
+		stateService.saveFullCheckpoint(TcgSaveTrigger.CLIENT_SHUTDOWN);
 	}
 
 	@Subscribe
@@ -312,12 +324,12 @@ public class OsrsTcgPlugin extends Plugin
 		if (gs == GameState.LOGIN_SCREEN)
 		{
 			fileBackupLoadUsedThisSession = false;
-			stateService.saveToProfile();
+			stateService.saveFullCheckpoint(TcgSaveTrigger.LOGOUT);
 			collectionShareService.onLoggedOut();
 		}
 		else if (gs == GameState.HOPPING)
 		{
-			stateService.save();
+			// Credits and non-collection state stay in memory until logout/shutdown checkpoint.
 		}
 		else if (gs == GameState.LOGGED_IN)
 		{
@@ -453,26 +465,26 @@ public class OsrsTcgPlugin extends Plugin
 			return;
 		}
 
-		if (loadResult.isPrimaryLoadFailed())
+		if (loadResult.isConfigLoadFailed())
 		{
-			queueGameMessage("[OSRS TCG] Could not load saved progress; trying backups.");
+			queueGameMessage("[OSRS TCG] Could not load saved progress from profile; trying disk saves.");
 		}
 
 		if (loadResult.isAllBackupsFailed())
 		{
-			queueGameMessage("[OSRS TCG] Could not restore progress from any backup.");
+			queueGameMessage("[OSRS TCG] Could not restore progress from any save.");
 			return;
 		}
 
-		if (loadResult.getSource() == TcgStateLoadSource.CONFIG_BACKUP)
+		if (loadResult.getSource() == TcgStateLoadSource.DISK)
 		{
-			queueGameMessage("[OSRS TCG] Restored progress from configuration backup.");
+			queueGameMessage("[OSRS TCG] Restored progress from tcg.save.");
 		}
-		else if (loadResult.getSource() == TcgStateLoadSource.FILE_BACKUP)
+		else if (loadResult.getSource() == TcgStateLoadSource.DISK_SNAPSHOT)
 		{
-			queueGameMessage("[OSRS TCG] Restored progress from file backup.");
+			queueGameMessage("[OSRS TCG] Restored progress from a disk snapshot.");
 		}
-		else if (!loadResult.isDebugResetOnLoad())
+		else if (loadResult.getSource() == TcgStateLoadSource.CONFIG && !loadResult.isDebugResetOnLoad())
 		{
 			queueLoadSuccessMessage();
 		}
@@ -577,31 +589,24 @@ public class OsrsTcgPlugin extends Plugin
 
 		if ("tcg-load".equalsIgnoreCase(cmd))
 		{
-			handleLoadFileBackupCommand();
+			handleLoadDiskSaveCommand();
 			return;
 		}
 
 		if ("tcg-save".equalsIgnoreCase(cmd))
 		{
-			handleSaveFileBackupCommand();
+			handleSaveCheckpointCommand();
 		}
 	}
 
-	private void handleSaveFileBackupCommand()
+	private void handleSaveCheckpointCommand()
 	{
-		if (!config.enableFileBackups())
-		{
-			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-				"[OSRS TCG] File backups are disabled in plugin settings.", null);
-			return;
-		}
-
 		tcgPanel.flushRewardTuningDraftToState();
-		if (stateService.saveToFileBackup())
+		if (stateService.saveCheckpoint(TcgSaveTrigger.MANUAL))
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
 				String.format(Locale.US,
-					"[OSRS TCG] Saved file backup. Credits: %s, cards: %s.",
+					"[OSRS TCG] Saved checkpoint. Credits: %s, cards: %s.",
 					NumberFormatting.format(stateService.getState().getEconomyState().getCredits()),
 					NumberFormatting.format(stateService.getState().getCollectionState().getOwnedInstances().size())),
 				null);
@@ -609,18 +614,11 @@ public class OsrsTcgPlugin extends Plugin
 		}
 
 		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-			"[OSRS TCG] Failed to save file backup.", null);
+			"[OSRS TCG] Failed to save checkpoint.", null);
 	}
 
-	private void handleLoadFileBackupCommand()
+	private void handleLoadDiskSaveCommand()
 	{
-		if (!config.enableFileBackups())
-		{
-			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-				"[OSRS TCG] File backups are disabled in plugin settings.", null);
-			return;
-		}
-
 		if (fileBackupLoadUsedThisSession)
 		{
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
@@ -628,8 +626,27 @@ public class OsrsTcgPlugin extends Plugin
 			return;
 		}
 
-		if (stateService.restoreFromMostRecentFileBackup())
+		saveRestoreManager.showPicker(this::applyRestoredDiskSave);
+	}
+
+	private void applyRestoredDiskSave(String profileDirId, String fileName)
+	{
+		clientThread.invoke(() ->
 		{
+			if (fileBackupLoadUsedThisSession)
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+					"[OSRS TCG] ::tcg-load can only be used once per login session.", null);
+				return;
+			}
+
+			if (!stateService.restoreFromDiskFile(profileDirId, fileName))
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+					"[OSRS TCG] Failed to restore the selected save.", null);
+				return;
+			}
+
 			fileBackupLoadUsedThisSession = true;
 			creditAwardService.resetExperienceCreditBaseline();
 			packRevealService.reset();
@@ -638,15 +655,11 @@ public class OsrsTcgPlugin extends Plugin
 			tcgPanel.refresh();
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
 				String.format(Locale.US,
-					"[OSRS TCG] Loaded file backup. Credits: %s, cards: %s.",
+					"[OSRS TCG] Loaded disk save. Credits: %s, cards: %s.",
 					NumberFormatting.format(stateService.getState().getEconomyState().getCredits()),
 					NumberFormatting.format(stateService.getState().getCollectionState().getOwnedInstances().size())),
 				null);
-			return;
-		}
-
-		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
-			"[OSRS TCG] No valid file backup found for this profile.", null);
+		});
 	}
 
 	private void handleOpenFirstBoosterCommand(boolean forcedApex)

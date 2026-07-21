@@ -8,6 +8,10 @@ import com.osrstcg.model.PackCardResult;
 import com.osrstcg.model.RewardTuningState;
 import com.osrstcg.model.SkillCreditBaseline;
 import com.osrstcg.model.TcgState;
+import com.osrstcg.persist.TcgBackupProfile;
+import com.osrstcg.persist.TcgSaveMetadataEntry;
+import com.osrstcg.persist.TcgSaveTrigger;
+import com.osrstcg.persist.TcgStateFileBackupStore;
 import com.osrstcg.persist.TcgStateLoadResult;
 import com.osrstcg.persist.TcgStateLoadSource;
 import com.osrstcg.persist.TcgStateStore;
@@ -33,8 +37,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class TcgStateService
 {
-	private static final long FILE_BACKUP_THROTTLE_MS = 5L * 60L * 1000L;
-
 	private final TcgStateStore stateStore;
 	private final boolean runeliteDeveloperMode;
 	private final Provider<OsrsTcgConfig> config;
@@ -43,7 +45,6 @@ public class TcgStateService
 	private volatile TcgState state = TcgState.empty();
 	private Runnable rewardTuningFlushBeforeCredits;
 	private final CopyOnWriteArrayList<Runnable> collectionChangeListeners = new CopyOnWriteArrayList<>();
-	private long lastFileBackupEpochMs;
 
 	@Inject
 	public TcgStateService(
@@ -77,13 +78,11 @@ public class TcgStateService
 	{
 		if (stateStore == null)
 		{
-			return new TcgStateLoadResult(state, TcgStateLoadSource.PRIMARY, false, false, false);
+			return new TcgStateLoadResult(state, TcgStateLoadSource.CONFIG);
 		}
 
 		TcgStateLoadResult result = stateStore.load();
 		state = result.getState();
-		// Allow a file backup soon after login; plugin start may have already written one.
-		lastFileBackupEpochMs = 0L;
 		if (shouldResetDebugTaintedSave())
 		{
 			log.info("OSRS TCG: loaded profile had debug mode enabled; resetting collection and economy.");
@@ -91,9 +90,8 @@ public class TcgStateService
 			return new TcgStateLoadResult(
 				state,
 				result.getSource(),
-				result.isPrimaryLoadFailed(),
-				result.isConfigBackupLoadFailed(),
-				result.isFileBackupLoadFailed(),
+				result.isConfigLoadFailed(),
+				result.isDiskLoadFailed(),
 				true);
 		}
 
@@ -103,7 +101,6 @@ public class TcgStateService
 		}
 
 		boolean strippedDebug = stripDebugProvenanceRowsIfDebugDisabled();
-		// Rewrite older profiles so persisted JSON includes skillCreditBaseline / schema-5 fields.
 		boolean upgradedSkillBaseline = ensureSkillCreditBaselineSchemaField();
 		boolean upgradedProfileMeta = ensureProfileMetaSchemaFields();
 		if (upgradedSkillBaseline)
@@ -112,30 +109,137 @@ public class TcgStateService
 		}
 		if (strippedDebug || upgradedSkillBaseline || upgradedProfileMeta)
 		{
-			saveToProfile();
 			if (strippedDebug)
 			{
+				saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 				notifyCollectionShareListeners();
 			}
+			else
+			{
+				saveCheckpoint(TcgSaveTrigger.MANUAL);
+			}
+		}
+
+		if (result.getSource() != TcgStateLoadSource.EMPTY)
+		{
+			writeValidatedLoadToConfig();
 		}
 
 		return result;
 	}
 
 	/**
-	 * Restores the most recent valid on-disk backup into memory and writes profile configuration
-	 * plus a file backup.
-	 *
-	 * @return true if a backup was loaded
+	 * Persists the validated in-memory state to RSProfile {@code state}/{@code hash} after load.
 	 */
-	public synchronized boolean restoreFromMostRecentFileBackup()
+	private void writeValidatedLoadToConfig()
+	{
+		if (stateStore == null)
+		{
+			return;
+		}
+		stateStore.saveConfigOnly(state);
+	}
+
+	/**
+	 * Restores from {@code tcg.save} (no prefix) or the newest hash snapshot matching {@code prefix}.
+	 *
+	 * @return true if a save was loaded
+	 */
+	public synchronized boolean restoreFromDiskSave(Optional<String> hashPrefix)
 	{
 		if (stateStore == null)
 		{
 			return false;
 		}
 
-		Optional<TcgState> restored = stateStore.loadMostRecentFileBackup();
+		Optional<TcgState> restored;
+		if (hashPrefix.isEmpty() || hashPrefix.get().isBlank())
+		{
+			restored = stateStore.loadMaster();
+			if (restored.isEmpty())
+			{
+				restored = stateStore.loadMostRecentSnapshot();
+			}
+		}
+		else
+		{
+			restored = stateStore.loadByHashPrefix(hashPrefix.get().trim());
+		}
+
+		return applyRestoredDiskState(restored);
+	}
+
+	/**
+	 * Restores a specific save file ({@code tcg.save} or a hash-named snapshot) from the current profile.
+	 */
+	public synchronized boolean restoreFromDiskFile(String fileName)
+	{
+		return restoreFromDiskFile(null, fileName);
+	}
+
+	/**
+	 * Restores a save from a backups profile directory into the current in-memory / RSProfile state.
+	 */
+	public synchronized boolean restoreFromDiskFile(String profileDirId, String fileName)
+	{
+		if (stateStore == null || fileName == null || fileName.isEmpty())
+		{
+			return false;
+		}
+		return applyRestoredDiskState(stateStore.loadByFileName(profileDirId, fileName.trim()));
+	}
+
+	/** Lists disk saves for the current profile ({@code tcg.save} + snapshots). */
+	public synchronized List<TcgSaveMetadataEntry> listDiskSaves()
+	{
+		return listDiskSaves(null);
+	}
+
+	/** Lists disk saves for a backups profile directory id. */
+	public synchronized List<TcgSaveMetadataEntry> listDiskSaves(String profileDirId)
+	{
+		if (stateStore == null)
+		{
+			return List.of();
+		}
+		return stateStore.listSaveMetadata(profileDirId);
+	}
+
+	public synchronized List<TcgBackupProfile> listBackupProfiles()
+	{
+		if (stateStore == null)
+		{
+			return List.of();
+		}
+		return stateStore.listBackupProfiles();
+	}
+
+	public synchronized String currentBackupProfileId()
+	{
+		if (stateStore == null)
+		{
+			return TcgStateFileBackupStore.DEFAULT_PROFILE_DIR;
+		}
+		return stateStore.currentBackupProfileId();
+	}
+
+	/** Peeks a save without applying it (for UI stats). */
+	public synchronized Optional<TcgState> peekDiskSave(String fileName)
+	{
+		return peekDiskSave(null, fileName);
+	}
+
+	public synchronized Optional<TcgState> peekDiskSave(String profileDirId, String fileName)
+	{
+		if (stateStore == null || fileName == null || fileName.isEmpty())
+		{
+			return Optional.empty();
+		}
+		return stateStore.loadByFileName(profileDirId, fileName.trim());
+	}
+
+	private boolean applyRestoredDiskState(Optional<TcgState> restored)
+	{
 		if (restored.isEmpty())
 		{
 			return false;
@@ -144,14 +248,14 @@ public class TcgStateService
 		state = restored.get();
 		if (shouldResetDebugTaintedSave())
 		{
-			log.info("OSRS TCG: file backup had debug mode enabled; resetting collection and economy.");
+			log.info("OSRS TCG: disk save had debug mode enabled; resetting collection and economy.");
 			resetAll();
 			return true;
 		}
 
 		if (state.isDebugLogging() && runeliteDeveloperMode)
 		{
-			log.info("OSRS TCG: file backup had debug mode enabled; keeping collection (developer mode active).");
+			log.info("OSRS TCG: disk save had debug mode enabled; keeping collection (developer mode active).");
 		}
 
 		boolean strippedDebug = stripDebugProvenanceRowsIfDebugDisabled();
@@ -160,12 +264,19 @@ public class TcgStateService
 			state = state.withSkillCreditBaseline(SkillCreditBaseline.absent());
 		}
 		ensureProfileMetaSchemaFields();
-		saveToProfile();
+		saveCheckpoint(TcgSaveTrigger.LOAD);
 		if (strippedDebug)
 		{
 			notifyCollectionShareListeners();
 		}
 		return true;
+	}
+
+	/** @deprecated use {@link #restoreFromDiskSave(Optional)} */
+	@Deprecated
+	public synchronized boolean restoreFromMostRecentFileBackup()
+	{
+		return restoreFromDiskSave(Optional.empty());
 	}
 
 	/**
@@ -212,66 +323,66 @@ public class TcgStateService
 	}
 
 	/**
-	 * Persists the current in-memory state to a validated on-disk backup file without writing profile configuration.
-	 *
-	 * @return true if the file backup was written
+	 * Writes {@code tcg.save} + {@code saves.json} for a card collection change.
 	 */
-	public synchronized boolean saveToFileBackup()
+	public synchronized boolean saveMasterOnly(TcgSaveTrigger trigger)
 	{
 		flushRewardTuningDraftBeforeLocking();
 		if (stateStore == null)
 		{
 			return false;
 		}
-
-		boolean written = stateStore.saveToFileBackup(state);
-		if (written)
-		{
-			lastFileBackupEpochMs = System.currentTimeMillis();
-		}
-		return written;
+		return stateStore.saveMasterOnly(state, trigger == null ? TcgSaveTrigger.COLLECTION_CHANGE : trigger);
 	}
 
 	/**
-	 * Writes the current in-memory state to RuneLite profile configuration and a file backup.
-	 * Used on logout, plugin unload, collection reset, and manual file-backup restore.
+	 * Hash snapshot + RSProfile config (no {@code tcg.save}). Used by {@code ::tcg-save} and post-load restore.
 	 */
-	public synchronized void saveToProfile()
+	public synchronized boolean saveCheckpoint(TcgSaveTrigger trigger)
 	{
 		flushRewardTuningDraftBeforeLocking();
 		if (stateStore == null)
 		{
-			return;
+			return false;
 		}
 		state = state.withProfileSavedAtUnix(TcgState.currentUnixSeconds());
-		stateStore.save(state);
-		if (stateStore.saveToFileBackup(state))
-		{
-			lastFileBackupEpochMs = System.currentTimeMillis();
-		}
+		return stateStore.saveCheckpoint(state, trigger == null ? TcgSaveTrigger.MANUAL : trigger);
 	}
 
 	/**
-	 * Throttled on-disk file backup (at most once per 5 minutes). Does not write RuneLite profile
-	 * configuration; that happens via {@link #saveToProfile()}.
+	 * {@code tcg.save} + snapshot + config. Used on logout and client shutdown.
+	 */
+	public synchronized boolean saveFullCheckpoint(TcgSaveTrigger trigger)
+	{
+		flushRewardTuningDraftBeforeLocking();
+		if (stateStore == null)
+		{
+			return false;
+		}
+		state = state.withProfileSavedAtUnix(TcgState.currentUnixSeconds());
+		return stateStore.saveFullCheckpoint(state, trigger == null ? TcgSaveTrigger.LOGOUT : trigger);
+	}
+
+	/** @deprecated use {@link #saveCheckpoint(TcgSaveTrigger)} */
+	@Deprecated
+	public synchronized boolean saveToFileBackup()
+	{
+		return saveCheckpoint(TcgSaveTrigger.MANUAL);
+	}
+
+	/** @deprecated use {@link #saveFullCheckpoint(TcgSaveTrigger)} */
+	@Deprecated
+	public synchronized void saveToProfile()
+	{
+		saveFullCheckpoint(TcgSaveTrigger.LOGOUT);
+	}
+
+	/**
+	 * Non-collection persistence: keeps state in memory only until the next checkpoint.
 	 */
 	public synchronized void save()
 	{
-		if (stateStore == null)
-		{
-			return;
-		}
-
-		long now = System.currentTimeMillis();
-		if (now - lastFileBackupEpochMs < FILE_BACKUP_THROTTLE_MS)
-		{
-			return;
-		}
-
-		if (stateStore.saveToFileBackup(state))
-		{
-			lastFileBackupEpochMs = now;
-		}
+		// Intentionally no disk/config write (credits, UI prefs, etc.).
 	}
 
 	/** Invoked after share-relevant collection / pack mutations (web sync, interop broadcasts). */
@@ -337,7 +448,12 @@ public class TcgStateService
 		state = state.withDebugLogging(enabled);
 		if (!enabled)
 		{
-			stripDebugProvenanceRowsIfDebugDisabled();
+			if (stripDebugProvenanceRowsIfDebugDisabled())
+			{
+				saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
+				notifyCollectionShareListeners();
+				return;
+			}
 		}
 		save();
 	}
@@ -477,7 +593,7 @@ public class TcgStateService
 			add.add(OwnedCardInstance.createNew(cardName, foil, by, at));
 		}
 		state = state.withCollection(state.getCollectionState().withInstancesAdded(add));
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		notifyCollectionShareListeners();
 	}
 
@@ -489,7 +605,7 @@ public class TcgStateService
 		}
 		flushRewardTuningDraftBeforeLocking();
 		state = state.withCollection(state.getCollectionState().withInstanceAdded(instance));
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		notifyCollectionShareListeners();
 	}
 
@@ -533,7 +649,7 @@ public class TcgStateService
 		}
 
 		state = state.withCollection(state.getCollectionState().withInstancesAdded(toAdd));
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		notifyCollectionShareListeners();
 		return toAdd.size();
 	}
@@ -548,7 +664,7 @@ public class TcgStateService
 	{
 		flushRewardTuningDraftBeforeLocking();
 		state = state.withCollection(CollectionState.copyOf(replacement == null ? List.of() : replacement));
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		notifyCollectionShareListeners();
 	}
 
@@ -565,7 +681,7 @@ public class TcgStateService
 			return false;
 		}
 		state = state.withCollection(after);
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		return true;
 	}
 
@@ -626,7 +742,7 @@ public class TcgStateService
 			.withCredits(currentCredits - packPrice)
 			.withOpenedPacks(state.getEconomyState().getOpenedPacks() + 1L)
 			.withCollection(nextColl);
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		notifyCollectionShareListeners();
 		return true;
 	}
@@ -634,7 +750,7 @@ public class TcgStateService
 	public synchronized void resetAll()
 	{
 		state = TcgState.empty();
-		saveToProfile();
+		saveFullCheckpoint(TcgSaveTrigger.RESET);
 		notifyCollectionShareListeners();
 	}
 
@@ -649,7 +765,7 @@ public class TcgStateService
 			return false;
 		}
 		state = state.withCollection(state.getCollectionState().withInstanceRemoved(instanceId));
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		notifyCollectionShareListeners();
 		return true;
 	}
@@ -711,7 +827,7 @@ public class TcgStateService
 			list.remove(matches.get(r));
 		}
 		state = state.withCollection(CollectionState.copyOf(list));
-		save();
+		saveMasterOnly(TcgSaveTrigger.COLLECTION_CHANGE);
 		notifyCollectionShareListeners();
 		return true;
 	}

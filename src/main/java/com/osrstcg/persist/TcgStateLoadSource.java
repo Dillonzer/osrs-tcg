@@ -2,8 +2,8 @@ package com.osrstcg.persist;
 
 public enum TcgStateLoadSource
 {
-	PRIMARY,
-	CONFIG_BACKUP,
-	FILE_BACKUP,
+	CONFIG,
+	DISK,
+	DISK_SNAPSHOT,
 	EMPTY
 }

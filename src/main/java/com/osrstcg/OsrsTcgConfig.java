@@ -92,26 +92,11 @@ public interface OsrsTcgConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "enableFileBackups",
-		name = "Backups",
-		description = "Keep up to 50 file backups under .runelite/OSRS-TCG/backups. "
-			+ "Written at most every 5 minutes while playing, and on logout, plugin load/unload, and ::tcg-save. "
-			+ "Preferred on load when newer than the profile configuration timestamp; "
-			+ "also used when profile configuration saves fail to load.",
-		section = generalSection,
-		position = 6
-	)
-	default boolean enableFileBackups()
-	{
-		return true;
-	}
-
-	@ConfigItem(
 		keyName = "safeMode",
 		name = "Safe-mode",
 		description = "Block opening packs while in combat.",
 		section = generalSection,
-		position = 7
+		position = 6
 	)
 	default boolean safeMode()
 	{
@@ -123,7 +108,7 @@ public interface OsrsTcgConfig extends Config
 		name = "Chat prefix colour",
 		description = "Colour of the [OSRS TCG] chat tag.",
 		section = generalSection,
-		position = 8
+		position = 7
 	)
 	default Color chatPrefixColor()
 	{
@@ -135,7 +120,7 @@ public interface OsrsTcgConfig extends Config
 		name = "Debug messages",
 		description = "Show extra plugin details in chat.",
 		section = generalSection,
-		position = 9
+		position = 8
 	)
 	default boolean debugMessages()
 	{

@@ -1,6 +1,8 @@
 package com.osrstcg.persist;
 
 import com.osrstcg.model.TcgState;
+import com.osrstcg.persist.TcgSaveMetadataEntry;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.inject.Inject;
@@ -41,162 +43,221 @@ public class TcgStateStore
 
 	public TcgStateLoadResult load()
 	{
-		moveOldState();
+		migrateObsoleteKeysAndSeedDisk();
 
-		long writtenAt = readWrittenAtEpochMs();
-		// Only compare against file backups when a write timestamp exists. A missing timestamp
-		// (pre-0.16.2 profiles) must not prefer an older on-disk backup over valid primary state.
-		if (writtenAt > 0L)
+		LoadAttempt config = tryLoadConfig(STATE_KEY, STATE_HASH_KEY);
+		if (config.outcome == LoadOutcome.SUCCESS)
 		{
-			Optional<TcgState> newerFileBackup = loadMostRecentFileBackupIfNewerThan(writtenAt);
-			if (newerFileBackup.isPresent())
+			if (config.missingHash)
 			{
-				log.warn("OSRS TCG restored state from file backup newer than profile configuration timestamp.");
-				return new TcgStateLoadResult(
-					newerFileBackup.get(),
-					TcgStateLoadSource.FILE_BACKUP,
-					false,
-					false,
-					false);
+				log.info("OSRS TCG state has no integrity hash yet; it will be written on next checkpoint.");
 			}
+			return new TcgStateLoadResult(config.state, TcgStateLoadSource.CONFIG);
 		}
 
-		LoadAttempt primary = tryLoad(STATE_KEY, STATE_HASH_KEY);
-		if (primary.outcome == LoadOutcome.SUCCESS)
+		boolean configFailed = config.outcome != LoadOutcome.MISSING;
+		if (configFailed)
 		{
-			if (primary.missingHash)
-			{
-				log.info("OSRS TCG state has no integrity hash yet; it will be written on next save.");
-			}
-			return new TcgStateLoadResult(primary.state, TcgStateLoadSource.PRIMARY, false, false, false);
+			log.warn("OSRS TCG profile configuration state could not be loaded ({}); trying tcg.save.",
+				config.outcome);
 		}
 
-		boolean primaryFailed = primary.outcome != LoadOutcome.MISSING;
-		if (primaryFailed)
+		Optional<TcgState> master = loadMaster();
+		if (master.isPresent())
 		{
-			log.warn("OSRS TCG primary state could not be loaded ({}); trying configuration backup.",
-				primary.outcome);
+			log.warn("OSRS TCG restored state from tcg.save after configuration load failed or was missing.");
+			return new TcgStateLoadResult(master.get(), TcgStateLoadSource.DISK, configFailed, false);
 		}
 
-		LoadAttempt configBackup = tryLoad(STATE_BACKUP_KEY, STATE_BACKUP_HASH_KEY);
-		if (configBackup.outcome == LoadOutcome.SUCCESS)
+		Optional<TcgState> snapshot = loadMostRecentSnapshot();
+		if (snapshot.isPresent())
 		{
-			log.warn("OSRS TCG restored state from configuration backup after primary load failed.");
-			return new TcgStateLoadResult(
-				configBackup.state,
-				TcgStateLoadSource.CONFIG_BACKUP,
-				true,
-				false,
-				false);
+			log.warn("OSRS TCG restored state from hash snapshot after configuration and tcg.save failed.");
+			return new TcgStateLoadResult(snapshot.get(), TcgStateLoadSource.DISK_SNAPSHOT, configFailed, true);
 		}
 
-		boolean configBackupFailed = primaryFailed && configBackup.outcome != LoadOutcome.MISSING;
-		if (configBackupFailed)
+		if (configFailed)
 		{
-			log.warn("OSRS TCG configuration backup could not be loaded ({}); trying file backup.",
-				configBackup.outcome);
-		}
-		else if (primaryFailed)
-		{
-			log.warn("OSRS TCG configuration backup is missing; trying file backup.");
+			log.error("OSRS TCG could not restore state from configuration, tcg.save, or snapshots.");
 		}
 
-		Optional<TcgState> fileBackup = loadMostRecentFileBackup();
-		if (fileBackup.isPresent())
-		{
-			log.warn("OSRS TCG restored state from file backup after configuration backups failed.");
-			return new TcgStateLoadResult(
-				fileBackup.get(),
-				TcgStateLoadSource.FILE_BACKUP,
-				true,
-				configBackupFailed || primaryFailed,
-				false);
-		}
-
-		if (primaryFailed)
-		{
-			log.error(
-				"OSRS TCG could not restore state from configuration or file backups (config backup: {}).",
-				configBackup.outcome);
-		}
-
-		return new TcgStateLoadResult(
-			TcgState.empty(),
-			TcgStateLoadSource.EMPTY,
-			primaryFailed,
-			configBackupFailed,
-			primaryFailed);
+		return new TcgStateLoadResult(TcgState.empty(), TcgStateLoadSource.EMPTY, configFailed, configFailed);
 	}
 
+	public Optional<TcgState> loadMaster()
+	{
+		if (fileBackupStore == null)
+		{
+			return Optional.empty();
+		}
+		return fileBackupStore.loadMaster();
+	}
+
+	public Optional<TcgState> loadMostRecentSnapshot()
+	{
+		if (fileBackupStore == null)
+		{
+			return Optional.empty();
+		}
+		return fileBackupStore.loadMostRecentSnapshot();
+	}
+
+	public Optional<TcgState> loadByHashPrefix(String prefix)
+	{
+		if (fileBackupStore == null)
+		{
+			return Optional.empty();
+		}
+		return fileBackupStore.loadByHashPrefix(prefix);
+	}
+
+	public List<TcgSaveMetadataEntry> listSaveMetadata()
+	{
+		return listSaveMetadata(null);
+	}
+
+	public List<TcgSaveMetadataEntry> listSaveMetadata(String profileDirId)
+	{
+		if (fileBackupStore == null)
+		{
+			return List.of();
+		}
+		return fileBackupStore.listSaveMetadata(profileDirId);
+	}
+
+	public Optional<TcgState> loadByFileName(String fileName)
+	{
+		return loadByFileName(null, fileName);
+	}
+
+	public Optional<TcgState> loadByFileName(String profileDirId, String fileName)
+	{
+		if (fileBackupStore == null)
+		{
+			return Optional.empty();
+		}
+		return fileBackupStore.loadByFileName(profileDirId, fileName);
+	}
+
+	public List<TcgBackupProfile> listBackupProfiles()
+	{
+		if (fileBackupStore == null)
+		{
+			return List.of();
+		}
+		return fileBackupStore.listBackupProfiles();
+	}
+
+	public String currentBackupProfileId()
+	{
+		if (fileBackupStore == null)
+		{
+			return TcgStateFileBackupStore.DEFAULT_PROFILE_DIR;
+		}
+		return fileBackupStore.currentProfileDirName();
+	}
+
+	/** @deprecated use {@link #loadMostRecentSnapshot()} */
+	@Deprecated
 	public Optional<TcgState> loadMostRecentFileBackup()
 	{
-		if (fileBackupStore == null)
-		{
-			return Optional.empty();
-		}
-		return fileBackupStore.loadMostRecentValid();
-	}
-
-	public Optional<TcgState> loadMostRecentFileBackupIfNewerThan(long writtenAtEpochMs)
-	{
-		if (fileBackupStore == null)
-		{
-			return Optional.empty();
-		}
-		return fileBackupStore.loadMostRecentValidIfNewerThan(writtenAtEpochMs);
+		return loadMostRecentSnapshot();
 	}
 
 	/**
-	 * Writes the encoded state to the on-disk backup store without updating profile configuration.
-	 *
-	 * @return true if a validated file backup was written
+	 * Writes {@code tcg.save} + {@code saves.json} master entry only.
 	 */
+	public boolean saveMasterOnly(TcgState state, TcgSaveTrigger trigger)
+	{
+		Encoded encoded = encode(state);
+		if (encoded == null || fileBackupStore == null)
+		{
+			return false;
+		}
+		return fileBackupStore.writeMaster(encoded.blob, encoded.cardCount, encoded.credits, trigger);
+	}
+
+	/**
+	 * Writes {@code tcg.save}, hash snapshot, {@code saves.json}, and RSProfile {@code state}/{@code hash}.
+	 */
+	public boolean saveFullCheckpoint(TcgState state, TcgSaveTrigger trigger)
+	{
+		Encoded encoded = encode(state);
+		if (encoded == null)
+		{
+			return false;
+		}
+
+		boolean diskOk = true;
+		if (fileBackupStore != null)
+		{
+			diskOk = fileBackupStore.writeMaster(encoded.blob, encoded.cardCount, encoded.credits, trigger);
+			diskOk = fileBackupStore.writeSnapshot(encoded.blob, encoded.cardCount, encoded.credits, trigger) && diskOk;
+		}
+		writeConfigCheckpoint(encoded.blob, encoded.hashHex);
+		return diskOk;
+	}
+
+	/**
+	 * Writes hash snapshot + RSProfile {@code state}/{@code hash} without updating {@code tcg.save}.
+	 */
+	public boolean saveCheckpoint(TcgState state, TcgSaveTrigger trigger)
+	{
+		Encoded encoded = encode(state);
+		if (encoded == null)
+		{
+			return false;
+		}
+
+		boolean diskOk = true;
+		if (fileBackupStore != null)
+		{
+			diskOk = fileBackupStore.writeSnapshot(encoded.blob, encoded.cardCount, encoded.credits, trigger);
+		}
+		writeConfigCheckpoint(encoded.blob, encoded.hashHex);
+		return diskOk;
+	}
+
+	/**
+	 * Writes RSProfile {@code state}/{@code hash} only (no disk snapshot / master).
+	 * Used after a validated load so config matches the in-memory collection.
+	 */
+	public boolean saveConfigOnly(TcgState state)
+	{
+		Encoded encoded = encode(state);
+		if (encoded == null)
+		{
+			return false;
+		}
+		writeConfigCheckpoint(encoded.blob, encoded.hashHex);
+		return true;
+	}
+
+	/** @deprecated use {@link #saveCheckpoint} or {@link #saveFullCheckpoint} */
+	@Deprecated
 	public boolean saveToFileBackup(TcgState state)
 	{
-		if (state == null || fileBackupStore == null)
+		Encoded encoded = encode(state);
+		if (encoded == null || fileBackupStore == null)
 		{
 			return false;
 		}
-
-		String json = stateCodec.toJson(state);
-		String stored = TcgStateStorageEncoding.encode(json);
-		if (stored.isEmpty())
-		{
-			log.error("OSRS TCG file backup aborted: encoding produced an empty payload.");
-			return false;
-		}
-
-		return fileBackupStore.writeBackupIfEnabled(stored);
+		return fileBackupStore.writeSnapshot(encoded.blob, encoded.cardCount, encoded.credits, TcgSaveTrigger.MANUAL);
 	}
 
 	/**
-	 * Writes state to RuneLite profile configuration, including a write timestamp.
+	 * @deprecated use {@link #saveFullCheckpoint} / {@link #saveCheckpoint}
 	 */
+	@Deprecated
 	public void save(TcgState state)
 	{
-		if (state == null)
-		{
-			return;
-		}
+		saveFullCheckpoint(state, TcgSaveTrigger.LOGOUT);
+	}
 
-		String json = stateCodec.toJson(state);
-		String stored = TcgStateStorageEncoding.encode(json);
-		if (stored.isEmpty())
-		{
-			log.error("OSRS TCG state save aborted: encoding produced an empty payload.");
-			return;
-		}
-
-		String hashHex = TcgStateHash.hexOfUtf8(stored);
-		rotateBackupFromValidPrimary();
+	private void writeConfigCheckpoint(String stored, String hashHex)
+	{
 		writeProfileScoped(STATE_KEY, stored);
 		writeProfileScoped(STATE_HASH_KEY, hashHex);
-		writeProfileScoped(STATE_WRITTEN_AT_KEY, Long.toString(System.currentTimeMillis()));
-		if (isBackupMissing())
-		{
-			writeProfileScoped(STATE_BACKUP_KEY, stored);
-			writeProfileScoped(STATE_BACKUP_HASH_KEY, hashHex);
-		}
 
 		String roundTrip = getProfileScoped(STATE_KEY);
 		String roundTripHash = getProfileScoped(STATE_HASH_KEY);
@@ -210,53 +271,72 @@ public class TcgStateStore
 		}
 	}
 
-	long readWrittenAtEpochMs()
+	private Encoded encode(TcgState state)
 	{
-		String raw = getProfileScoped(STATE_WRITTEN_AT_KEY);
-		if (raw == null || raw.isEmpty())
+		if (state == null)
 		{
-			return 0L;
+			return null;
 		}
-
-		try
+		String json = stateCodec.toJson(state);
+		String stored = TcgStateStorageEncoding.encode(json);
+		if (stored.isEmpty())
 		{
-			return Long.parseLong(raw.trim());
+			log.error("OSRS TCG state save aborted: encoding produced an empty payload.");
+			return null;
 		}
-		catch (NumberFormatException ex)
-		{
-			return 0L;
-		}
+		int cardCount = state.getCollectionState().getOwnedInstances().size();
+		long credits = state.getEconomyState().getCredits();
+		String hashHex = TcgStateHash.hexOfUtf8(stored);
+		return new Encoded(stored, hashHex, cardCount, credits);
 	}
 
-	private void rotateBackupFromValidPrimary()
+	/**
+	 * Seeds disk from config/backup when needed and unsets obsolete backup keys.
+	 */
+	void migrateObsoleteKeysAndSeedDisk()
 	{
-		String currentState = getProfileScoped(STATE_KEY);
-		if (currentState == null || currentState.isEmpty())
-		{
-			return;
-		}
+		moveOldStateIntoProfile();
 
-		String currentHash = getProfileScoped(STATE_HASH_KEY);
-		if (currentHash != null && !currentHash.isEmpty())
+		boolean hasMaster = fileBackupStore != null && fileBackupStore.loadMaster().isPresent();
+		if (!hasMaster && fileBackupStore != null)
 		{
-			String actualHex = TcgStateHash.hexOfUtf8(currentState);
-			if (!actualHex.equalsIgnoreCase(currentHash.trim()))
+			LoadAttempt primary = tryLoadConfig(STATE_KEY, STATE_HASH_KEY);
+			LoadAttempt backup = primary.outcome == LoadOutcome.SUCCESS
+				? primary
+				: tryLoadConfig(STATE_BACKUP_KEY, STATE_BACKUP_HASH_KEY);
+			if (backup.outcome == LoadOutcome.SUCCESS)
 			{
-				return;
+				String json = stateCodec.toJson(backup.state);
+				String stored = TcgStateStorageEncoding.encode(json);
+				if (!stored.isEmpty())
+				{
+					int cardCount = backup.state.getCollectionState().getOwnedInstances().size();
+					long credits = backup.state.getEconomyState().getCredits();
+					fileBackupStore.writeMaster(stored, cardCount, credits, TcgSaveTrigger.MIGRATION);
+					fileBackupStore.writeSnapshot(stored, cardCount, credits, TcgSaveTrigger.MIGRATION);
+					log.info("OSRS TCG seeded disk saves from profile configuration during migration.");
+				}
 			}
-			writeProfileScoped(STATE_BACKUP_HASH_KEY, currentHash.trim());
 		}
 
-		writeProfileScoped(STATE_BACKUP_KEY, currentState);
+		unsetObsoleteKeys();
+		if (fileBackupStore != null)
+		{
+			fileBackupStore.rewriteSavesIndexFromDisk();
+		}
 	}
 
-	private boolean isBackupMissing()
+	private void unsetObsoleteKeys()
 	{
-		String backupState = getProfileScoped(STATE_BACKUP_KEY);
-		return backupState == null || backupState.isEmpty();
+		unsetProfileScoped(STATE_BACKUP_KEY);
+		unsetProfileScoped(STATE_BACKUP_HASH_KEY);
+		unsetProfileScoped(STATE_WRITTEN_AT_KEY);
+		unsetGlobalScoped(STATE_BACKUP_KEY);
+		unsetGlobalScoped(STATE_BACKUP_HASH_KEY);
+		unsetGlobalScoped(STATE_WRITTEN_AT_KEY);
 	}
 
-	private LoadAttempt tryLoad(String stateKey, String hashKey)
+	private LoadAttempt tryLoadConfig(String stateKey, String hashKey)
 	{
 		String rawState = getProfileScoped(stateKey);
 		if (rawState == null || rawState.isEmpty())
@@ -300,22 +380,42 @@ public class TcgStateStore
 		return configManager.getRSProfileConfiguration(GROUP, key);
 	}
 
-	void moveOldState()
+	void unsetProfileScoped(String key)
 	{
-		String currentState = configManager.getRSProfileConfiguration(GROUP, STATE_KEY);
+		configManager.unsetRSProfileConfiguration(GROUP, key);
+	}
+
+	String getGlobalScoped(String key)
+	{
+		return configManager.getConfiguration(GROUP, key);
+	}
+
+	void writeGlobalScoped(String key, String value)
+	{
+		configManager.setConfiguration(GROUP, key, value);
+	}
+
+	void unsetGlobalScoped(String key)
+	{
+		configManager.unsetConfiguration(GROUP, key);
+	}
+
+	void moveOldStateIntoProfile()
+	{
+		String currentState = getProfileScoped(STATE_KEY);
 		if (currentState != null)
 		{
 			return;
 		}
 
-		String currentBackup = configManager.getRSProfileConfiguration(GROUP, STATE_BACKUP_KEY);
+		String currentBackup = getProfileScoped(STATE_BACKUP_KEY);
 		if (currentBackup != null)
 		{
 			return;
 		}
 
-		String oldState = configManager.getConfiguration(GROUP, STATE_KEY);
-		String oldBackup = configManager.getConfiguration(GROUP, STATE_BACKUP_KEY);
+		String oldState = getGlobalScoped(STATE_KEY);
+		String oldBackup = getGlobalScoped(STATE_BACKUP_KEY);
 		if (oldState == null && oldBackup == null)
 		{
 			return;
@@ -323,8 +423,8 @@ public class TcgStateStore
 
 		if (oldState != null)
 		{
-			configManager.setRSProfileConfiguration(GROUP, STATE_KEY, oldState);
-			if (!oldState.equals(configManager.getRSProfileConfiguration(GROUP, STATE_KEY)))
+			writeProfileScoped(STATE_KEY, oldState);
+			if (!oldState.equals(getProfileScoped(STATE_KEY)))
 			{
 				return;
 			}
@@ -333,26 +433,26 @@ public class TcgStateStore
 
 		if (oldBackup != null)
 		{
-			configManager.setRSProfileConfiguration(GROUP, STATE_BACKUP_KEY, oldBackup);
-			if (!oldBackup.equals(configManager.getRSProfileConfiguration(GROUP, STATE_BACKUP_KEY)))
+			writeProfileScoped(STATE_BACKUP_KEY, oldBackup);
+			if (!oldBackup.equals(getProfileScoped(STATE_BACKUP_KEY)))
 			{
 				return;
 			}
 			moveOldHash(STATE_BACKUP_HASH_KEY);
 		}
 
-		configManager.unsetConfiguration(GROUP, STATE_KEY);
-		configManager.unsetConfiguration(GROUP, STATE_HASH_KEY);
-		configManager.unsetConfiguration(GROUP, STATE_BACKUP_KEY);
-		configManager.unsetConfiguration(GROUP, STATE_BACKUP_HASH_KEY);
+		unsetGlobalScoped(STATE_KEY);
+		unsetGlobalScoped(STATE_HASH_KEY);
+		unsetGlobalScoped(STATE_BACKUP_KEY);
+		unsetGlobalScoped(STATE_BACKUP_HASH_KEY);
 	}
 
 	private void moveOldHash(String key)
 	{
-		String value = configManager.getConfiguration(GROUP, key);
+		String value = getGlobalScoped(key);
 		if (value != null)
 		{
-			configManager.setRSProfileConfiguration(GROUP, key, value);
+			writeProfileScoped(key, value);
 		}
 	}
 
@@ -362,6 +462,22 @@ public class TcgStateStore
 		MISSING,
 		HASH_MISMATCH,
 		DECODE_FAILED
+	}
+
+	private static final class Encoded
+	{
+		private final String blob;
+		private final String hashHex;
+		private final int cardCount;
+		private final long credits;
+
+		private Encoded(String blob, String hashHex, int cardCount, long credits)
+		{
+			this.blob = blob;
+			this.hashHex = hashHex;
+			this.cardCount = cardCount;
+			this.credits = credits;
+		}
 	}
 
 	private static final class LoadAttempt

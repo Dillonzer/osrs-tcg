@@ -6,34 +6,35 @@ public final class TcgStateLoadResult
 {
 	private final TcgState state;
 	private final TcgStateLoadSource source;
-	private final boolean primaryLoadFailed;
-	private final boolean configBackupLoadFailed;
-	private final boolean fileBackupLoadFailed;
+	private final boolean configLoadFailed;
+	private final boolean diskLoadFailed;
 	private final boolean debugResetOnLoad;
 
-	public TcgStateLoadResult(
-		TcgState state,
-		TcgStateLoadSource source,
-		boolean primaryLoadFailed,
-		boolean configBackupLoadFailed,
-		boolean fileBackupLoadFailed)
+	public TcgStateLoadResult(TcgState state, TcgStateLoadSource source)
 	{
-		this(state, source, primaryLoadFailed, configBackupLoadFailed, fileBackupLoadFailed, false);
+		this(state, source, false, false, false);
 	}
 
 	public TcgStateLoadResult(
 		TcgState state,
 		TcgStateLoadSource source,
-		boolean primaryLoadFailed,
-		boolean configBackupLoadFailed,
-		boolean fileBackupLoadFailed,
+		boolean configLoadFailed,
+		boolean diskLoadFailed)
+	{
+		this(state, source, configLoadFailed, diskLoadFailed, false);
+	}
+
+	public TcgStateLoadResult(
+		TcgState state,
+		TcgStateLoadSource source,
+		boolean configLoadFailed,
+		boolean diskLoadFailed,
 		boolean debugResetOnLoad)
 	{
 		this.state = state == null ? TcgState.empty() : state;
 		this.source = source == null ? TcgStateLoadSource.EMPTY : source;
-		this.primaryLoadFailed = primaryLoadFailed;
-		this.configBackupLoadFailed = configBackupLoadFailed;
-		this.fileBackupLoadFailed = fileBackupLoadFailed;
+		this.configLoadFailed = configLoadFailed;
+		this.diskLoadFailed = diskLoadFailed;
 		this.debugResetOnLoad = debugResetOnLoad;
 	}
 
@@ -47,24 +48,19 @@ public final class TcgStateLoadResult
 		return source;
 	}
 
-	public boolean isPrimaryLoadFailed()
+	public boolean isConfigLoadFailed()
 	{
-		return primaryLoadFailed;
+		return configLoadFailed;
 	}
 
-	public boolean isConfigBackupLoadFailed()
+	public boolean isDiskLoadFailed()
 	{
-		return configBackupLoadFailed;
-	}
-
-	public boolean isFileBackupLoadFailed()
-	{
-		return fileBackupLoadFailed;
+		return diskLoadFailed;
 	}
 
 	public boolean isAllBackupsFailed()
 	{
-		return primaryLoadFailed && source == TcgStateLoadSource.EMPTY;
+		return configLoadFailed && source == TcgStateLoadSource.EMPTY;
 	}
 
 	public boolean isDebugResetOnLoad()
