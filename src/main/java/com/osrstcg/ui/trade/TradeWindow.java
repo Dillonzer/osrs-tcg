@@ -25,6 +25,7 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -33,6 +34,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.ui.ColorScheme;
@@ -67,7 +69,9 @@ public final class TradeWindow extends JFrame
 	private final JLabel statusLabel = new JLabel(" ");
 	private final JButton acceptBtn = new JButton("Accept");
 	private final JButton cancelBtn = new JButton("Cancel");
-	private final Timer imagePollTimer;
+	private static final int IMAGE_REPAINT_DEBOUNCE_MS = 500;
+	private Timer imageRepaintDebounceTimer;
+	private final Consumer<String> imageLoadListener = this::onWikiImageLoaded;
 	private final Timer foilAnimTimer;
 	private boolean suppressCloseCancel;
 
@@ -132,14 +136,6 @@ public final class TradeWindow extends JFrame
 			}
 		});
 
-		imagePollTimer = new Timer(250, e ->
-		{
-			if (isShowing())
-			{
-				localPanel.repaint();
-				remotePanel.repaint();
-			}
-		});
 		foilAnimTimer = new Timer(SharedCardRenderer.FOIL_SPARKLE_FRAME_MS, e ->
 		{
 			if (isShowing())
@@ -148,15 +144,22 @@ public final class TradeWindow extends JFrame
 				remotePanel.repaint();
 			}
 		});
+
+		imageRepaintDebounceTimer = new Timer(IMAGE_REPAINT_DEBOUNCE_MS, e ->
+		{
+			if (isShowing())
+			{
+				localPanel.repaint();
+				remotePanel.repaint();
+			}
+		});
+		imageRepaintDebounceTimer.setRepeats(false);
+		this.imageCacheService.addLoadListener(imageLoadListener);
 	}
 
 	void prepareToShow()
 	{
 		refreshFromService();
-		if (!imagePollTimer.isRunning())
-		{
-			imagePollTimer.start();
-		}
 		if (!foilAnimTimer.isRunning())
 		{
 			foilAnimTimer.start();
@@ -312,8 +315,12 @@ public final class TradeWindow extends JFrame
 	void disposeInternal()
 	{
 		suppressCloseCancel = true;
-		imagePollTimer.stop();
+		imageCacheService.removeLoadListener(imageLoadListener);
 		foilAnimTimer.stop();
+		if (imageRepaintDebounceTimer != null)
+		{
+			imageRepaintDebounceTimer.stop();
+		}
 		dispose();
 	}
 
@@ -322,6 +329,22 @@ public final class TradeWindow extends JFrame
 		suppressCloseCancel = true;
 		setVisible(false);
 		suppressCloseCancel = false;
+	}
+
+	private void onWikiImageLoaded(String normalizedUrl)
+	{
+		if (normalizedUrl == null || normalizedUrl.isEmpty() || !isShowing())
+		{
+			return;
+		}
+		SwingUtilities.invokeLater(() ->
+		{
+			if (!isShowing())
+			{
+				return;
+			}
+			imageRepaintDebounceTimer.restart();
+		});
 	}
 
 	private void onAcceptClicked()

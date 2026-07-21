@@ -1,5 +1,7 @@
 package com.osrstcg.service;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -20,8 +22,19 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
@@ -42,12 +55,27 @@ public class WikiImageCacheService
 	private static final String USER_AGENT =
 		"osrs-tcg (https://github.com/Azderi/osrs-tcg)";
 	/** Max decoded images kept in heap; evicted entries remain on disk. */
-	private static final int MEMORY_CACHE_MAX_ENTRIES = 128;
-	/** Cap concurrent disk/network decodes so fast album paging cannot flood the common pool. */
-	private static final int MAX_IN_FLIGHT_LOADS = 12;
+	private static final int MEMORY_CACHE_MAX_ENTRIES = 256;
+	/**
+	 * Longest edge kept in the memory cache. Album cards are drawn ~100px wide; full wiki
+	 * detail PNGs in the disk cache otherwise cause large GC pauses while decoding.
+	 */
+	private static final int MAX_MEMORY_IMAGE_EDGE_PX = 130;
+	/** Cap concurrent disk/network decodes so album open cannot flood the heap/CPU. */
+	private static final int MAX_IN_FLIGHT_LOADS = 4;
+	private static final AtomicInteger IMAGE_LOADER_SEQ = new AtomicInteger();
+	private static final ThreadFactory IMAGE_LOADER_THREAD_FACTORY = r ->
+	{
+		Thread t = new Thread(r, "osrs-tcg-wiki-image-" + IMAGE_LOADER_SEQ.incrementAndGet());
+		t.setDaemon(true);
+		return t;
+	};
 
 	private final OkHttpClient okHttpClient;
 	private final Semaphore loadPermits = new Semaphore(MAX_IN_FLIGHT_LOADS);
+	/** Dedicated pool so blocking ImageIO/HTTP does not stall the common ForkJoinPool. */
+	private final ExecutorService imageLoadExecutor = Executors.newFixedThreadPool(
+		MAX_IN_FLIGHT_LOADS, IMAGE_LOADER_THREAD_FACTORY);
 	private final Map<String, BufferedImage> memoryCache = Collections.synchronizedMap(
 		new LinkedHashMap<String, BufferedImage>(MEMORY_CACHE_MAX_ENTRIES + 1, 0.75f, true)
 		{
@@ -60,11 +88,50 @@ public class WikiImageCacheService
 	private final Map<String, CompletableFuture<BufferedImage>> loadingFutures = new ConcurrentHashMap<>();
 	/** URLs that failed to load; skip re-fetching on the overlay/album paint path. */
 	private final Set<String> failedUrls = ConcurrentHashMap.newKeySet();
+	/**
+	 * Fired on the loader thread after each URL settles (cached or failed), with the normalized URL.
+	 * Keep listeners cheap; they may run off the EDT.
+	 */
+	private final List<Consumer<String>> loadListeners = new CopyOnWriteArrayList<>();
 
 	@Inject
 	public WikiImageCacheService(OkHttpClient okHttpClient)
 	{
 		this.okHttpClient = okHttpClient;
+	}
+
+	/** Register for image load completion. Listener may run off the EDT; argument is the normalized URL. */
+	public void addLoadListener(Consumer<String> listener)
+	{
+		if (listener != null)
+		{
+			loadListeners.add(listener);
+		}
+	}
+
+	public void removeLoadListener(Consumer<String> listener)
+	{
+		if (listener != null)
+		{
+			loadListeners.remove(listener);
+		}
+	}
+
+	/** Normalize a wiki image URL the same way the memory cache keys entries. */
+	public String normalizeImageUrl(String rawUrl)
+	{
+		return normalizeUrl(rawUrl);
+	}
+
+	/** True when the image is already decoded in the memory cache. */
+	public boolean isInMemory(String url)
+	{
+		if (url == null)
+		{
+			return false;
+		}
+		String normalized = normalizeUrl(url);
+		return !normalized.isEmpty() && memoryCache.containsKey(normalized);
 	}
 
 	public void preload(Collection<String> urls)
@@ -79,6 +146,68 @@ public class WikiImageCacheService
 			.map(String::trim)
 			.filter(url -> !url.isEmpty())
 			.forEach(this::ensureLoad);
+	}
+
+	/**
+	 * Starts loads for the given URLs and blocks until each has settled in memory or failed,
+	 * or until {@code timeoutMs} elapses. Safe to call off the EDT (e.g. before applying an album page).
+	 */
+	public void preloadAndAwait(Collection<String> urls, long timeoutMs)
+	{
+		if (urls == null || urls.isEmpty())
+		{
+			return;
+		}
+		List<CompletableFuture<?>> pending = new ArrayList<>();
+		for (String raw : urls)
+		{
+			if (raw == null)
+			{
+				continue;
+			}
+			String normalized = normalizeUrl(raw.trim());
+			if (normalized.isEmpty() || isSettled(normalized))
+			{
+				continue;
+			}
+			ensureLoad(normalized);
+			CompletableFuture<BufferedImage> future = loadingFutures.get(normalized);
+			if (future != null)
+			{
+				pending.add(future);
+			}
+		}
+		if (pending.isEmpty())
+		{
+			return;
+		}
+		long waitMs = Math.max(1L, timeoutMs);
+		try
+		{
+			CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new))
+				.get(waitMs, TimeUnit.MILLISECONDS);
+		}
+		catch (TimeoutException ex)
+		{
+			log.debug("Timed out waiting for {} wiki image(s)", pending.size());
+		}
+		catch (Exception ex)
+		{
+			log.debug("Interrupted/failed waiting for wiki images", ex);
+		}
+	}
+
+	/** True when the URL is in memory or known-failed (will not start a new load). */
+	public boolean isSettled(String url)
+	{
+		if (url == null)
+		{
+			return true;
+		}
+		String normalized = normalizeUrl(url);
+		return normalized.isEmpty()
+			|| memoryCache.containsKey(normalized)
+			|| failedUrls.contains(normalized);
 	}
 
 	/** True when the image is not yet available in memory (not started or still loading). */
@@ -118,6 +247,30 @@ public class WikiImageCacheService
 			return directImageUrl(fromPath);
 		}
 		return normalized;
+	}
+
+	/** Memory-cache peek only; never starts a disk/network load. Safe on paint paths. */
+	public BufferedImage getIfPresent(String url)
+	{
+		if (url == null)
+		{
+			return null;
+		}
+		String normalized = normalizeUrl(url);
+		if (normalized.isEmpty())
+		{
+			return null;
+		}
+		return memoryCache.get(normalized);
+	}
+
+	/** Runs work on the wiki-image background pool (disk decode / card-face rasterization). */
+	public void executeBackground(Runnable task)
+	{
+		if (task != null)
+		{
+			imageLoadExecutor.execute(task);
+		}
 	}
 
 	/**
@@ -174,7 +327,7 @@ public class WikiImageCacheService
 				{
 					loadPermits.release();
 				}
-			})
+			}, imageLoadExecutor)
 			.whenComplete((image, ex) ->
 			{
 				// Populate cache before removing the in-flight future so paint reads never
@@ -189,7 +342,23 @@ public class WikiImageCacheService
 					failedUrls.add(key);
 				}
 				loadingFutures.remove(key);
+				notifyLoadListeners(key);
 			}));
+	}
+
+	private void notifyLoadListeners(String normalizedUrl)
+	{
+		for (Consumer<String> listener : loadListeners)
+		{
+			try
+			{
+				listener.accept(normalizedUrl);
+			}
+			catch (Exception ex)
+			{
+				log.debug("Image load listener failed", ex);
+			}
+		}
 	}
 
 	private BufferedImage loadImage(String url)
@@ -227,7 +396,14 @@ public class WikiImageCacheService
 						if (image != null)
 						{
 							persistToDisk(url, image);
-							return image;
+							// Prefer subsampled disk decode for the heap copy; avoids keeping the
+							// full-resolution network decode alive for album/UI use.
+							BufferedImage fromCache = tryLoadFromDisk(url);
+							if (fromCache != null)
+							{
+								return fromCache;
+							}
+							return downscaleForMemoryCache(image);
 						}
 					}
 				}
@@ -238,6 +414,38 @@ public class WikiImageCacheService
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Keeps heap pressure low when the disk/network asset is a full-size wiki detail PNG.
+	 * Disk cache retains the original; only the in-memory copy is scaled.
+	 */
+	private static BufferedImage downscaleForMemoryCache(BufferedImage source)
+	{
+		if (source == null)
+		{
+			return null;
+		}
+		int maxEdge = Math.max(source.getWidth(), source.getHeight());
+		if (maxEdge <= MAX_MEMORY_IMAGE_EDGE_PX)
+		{
+			return source;
+		}
+		double scale = MAX_MEMORY_IMAGE_EDGE_PX / (double) maxEdge;
+		int w = Math.max(1, (int) Math.round(source.getWidth() * scale));
+		int h = Math.max(1, (int) Math.round(source.getHeight() * scale));
+		BufferedImage scaled = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g2 = scaled.createGraphics();
+		try
+		{
+			g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			g2.drawImage(source, 0, 0, w, h, null);
+		}
+		finally
+		{
+			g2.dispose();
+		}
+		return scaled;
 	}
 
 	private Path diskCacheDir()
@@ -258,14 +466,48 @@ public class WikiImageCacheService
 		{
 			return null;
 		}
-		try (InputStream in = Files.newInputStream(file))
+		try (InputStream in = Files.newInputStream(file);
+			ImageInputStream imageStream = ImageIO.createImageInputStream(in))
 		{
-			BufferedImage image = ImageIO.read(in);
-			if (image == null)
+			if (imageStream == null)
+			{
+				return null;
+			}
+			var readers = ImageIO.getImageReaders(imageStream);
+			if (!readers.hasNext())
 			{
 				Files.deleteIfExists(file);
+				return null;
 			}
-			return image;
+			ImageReader reader = readers.next();
+			try
+			{
+				reader.setInput(imageStream, true, true);
+				int width = reader.getWidth(0);
+				int height = reader.getHeight(0);
+				int maxEdge = Math.max(width, height);
+				int subsample = 1;
+				while (subsample < 32 && maxEdge / subsample > MAX_MEMORY_IMAGE_EDGE_PX * 2)
+				{
+					subsample *= 2;
+				}
+				ImageReadParam param = reader.getDefaultReadParam();
+				if (subsample > 1)
+				{
+					param.setSourceSubsampling(subsample, subsample, 0, 0);
+				}
+				BufferedImage image = reader.read(0, param);
+				if (image == null)
+				{
+					Files.deleteIfExists(file);
+					return null;
+				}
+				return downscaleForMemoryCache(image);
+			}
+			finally
+			{
+				reader.dispose();
+			}
 		}
 		catch (Exception ex)
 		{

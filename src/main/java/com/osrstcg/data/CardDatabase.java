@@ -36,6 +36,8 @@ public class CardDatabase
 	private List<CardDefinition> cards = Collections.emptyList();
 	private boolean loaded;
 	private Map<String, Color> chatRarityColorByLowerCaseName = Map.of();
+	/** Exact card-name keys; display tier colours (same as collection album / pack reveal). */
+	private Map<String, Color> displayRarityColorByCardName = Map.of();
 
 	@Inject
 	public CardDatabase(Gson gson)
@@ -117,16 +119,27 @@ public class CardDatabase
 		return c != null ? c : Color.WHITE;
 	}
 
+	/**
+	 * Precomputed display-tier colours keyed by exact card name (built once with {@link #load()}).
+	 * Safe to reuse across album opens without re-running {@link RarityMath#displayTierByCardName(List)}.
+	 */
+	public synchronized Map<String, Color> displayRarityColorsByCardName()
+	{
+		return displayRarityColorByCardName;
+	}
+
 	private void rebuildChatRarityColorIndex()
 	{
 		if (cards.isEmpty())
 		{
 			chatRarityColorByLowerCaseName = Map.of();
+			displayRarityColorByCardName = Map.of();
 			return;
 		}
 		List<CardDefinition> all = new ArrayList<>(cards);
 		Map<String, RarityMath.Tier> tierByName = RarityMath.displayTierByCardName(all);
-		Map<String, Color> map = new HashMap<>();
+		Map<String, Color> chatMap = new HashMap<>();
+		Map<String, Color> displayMap = new HashMap<>();
 		for (CardDefinition c : all)
 		{
 			if (c == null || c.getName() == null || c.getName().trim().isEmpty())
@@ -134,12 +147,15 @@ public class CardDatabase
 				continue;
 			}
 			RarityMath.Tier t = tierByName.getOrDefault(c.getName(), RarityMath.Tier.COMMON);
-			Color nameColor = t == RarityMath.Tier.GODLY
+			Color displayColor = t.getColor();
+			displayMap.put(c.getName(), displayColor);
+			Color chatColor = t == RarityMath.Tier.GODLY
 				? TcgPluginGameMessages.CHAT_EMPHASIS_GOLD
-				: t.getColor();
-			map.put(c.getName().trim().toLowerCase(Locale.ROOT), nameColor);
+				: displayColor;
+			chatMap.put(c.getName().trim().toLowerCase(Locale.ROOT), chatColor);
 		}
-		chatRarityColorByLowerCaseName = Collections.unmodifiableMap(map);
+		chatRarityColorByLowerCaseName = Collections.unmodifiableMap(chatMap);
+		displayRarityColorByCardName = Collections.unmodifiableMap(displayMap);
 	}
 
 	private List<CardDefinition> loadFromClasspath()

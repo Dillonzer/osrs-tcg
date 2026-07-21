@@ -145,16 +145,6 @@ public final class CollectionAlbumVariantsPanel extends JPanel
 		return false;
 	}
 
-	public boolean needsImageLoadRepaint()
-	{
-		if (card == null)
-		{
-			return false;
-		}
-		String url = card.getImageUrl();
-		return url != null && !url.trim().isEmpty() && imageCacheService.needsLoad(url);
-	}
-
 	public void shiftVariantPage(int delta)
 	{
 		int nPages = Math.max(1, (allCopies.size() + PAGE_SIZE - 1) / PAGE_SIZE);

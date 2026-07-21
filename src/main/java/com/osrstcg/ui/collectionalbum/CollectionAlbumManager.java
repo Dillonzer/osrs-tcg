@@ -60,10 +60,20 @@ public final class CollectionAlbumManager
 					cardDatabase, stateService, packCatalog, imageCacheService, partyService,
 					cardPartyTransferService, cardPartyTradeService, this::refreshSidebarIfVisible);
 			}
+			boolean alreadyShowing = window.isShowing();
 			window.refreshData();
 			window.prepareToShow();
-			window.setVisible(true);
-			window.toFront();
+			if (alreadyShowing)
+			{
+				window.setVisible(true);
+				window.toFront();
+			}
+			else
+			{
+				// Defer first paint/show until the current page's images are in memory so
+				// disk decode GC does not overlap middle-mouse camera on the game canvas.
+				window.requestShowWhenPageReady();
+			}
 		});
 	}
 

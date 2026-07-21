@@ -10,6 +10,7 @@ import java.util.Map;
 
 /**
  * Rarity colors for the collection album; tiers come from {@link RarityMath#displayTierByCardName(List)} (same as pack reveal).
+ * Prefer {@link #fromColorByCardName(Map)} when colours were already computed at catalog load.
  */
 public final class AlbumRarityTable
 {
@@ -18,6 +19,20 @@ public final class AlbumRarityTable
 	private AlbumRarityTable(Map<String, Color> colorByCardName)
 	{
 		this.colorByCardName = colorByCardName;
+	}
+
+	/**
+	 * Wraps a precomputed colour map (exact card-name keys) without copying. Prefer this over
+	 * {@link #build(List)} when colours were already produced at catalog load. Caller must not mutate
+	 * the map afterward (e.g. {@link com.osrstcg.data.CardDatabase#displayRarityColorsByCardName()}).
+	 */
+	public static AlbumRarityTable fromColorByCardName(Map<String, Color> colorByCardName)
+	{
+		if (colorByCardName == null || colorByCardName.isEmpty())
+		{
+			return new AlbumRarityTable(Map.of());
+		}
+		return new AlbumRarityTable(colorByCardName);
 	}
 
 	public static AlbumRarityTable build(List<CardDefinition> allCards)

@@ -44,6 +44,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
@@ -84,6 +85,8 @@ public final class CollectionAlbumWindow extends JFrame
 		"You and the recipient must both be in the same RuneLite party with OSRS TCG installed to send cards.";
 	private static final String LOCKED_CARD_ACTION_TOOLTIP = AlbumInstanceTooltip.LOCKED_ACTION_HINT;
 	private static final int PAGE_SIZE = 21;
+	/** Quiet period after the last visible wiki-image load before one coalesced album repaint. */
+	private static final int IMAGE_REPAINT_DEBOUNCE_MS = 500;
 	private static final String RARITY_FILTER_ALL = "All";
 	private static final List<String> RARITY_TIERS_LOW_TO_HIGH = List.of(
 		"Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Godly");
@@ -128,10 +131,14 @@ public final class CollectionAlbumWindow extends JFrame
 	private final JPanel albumCenterHost = new JPanel(albumCenterLayout);
 	private final CollectionAlbumVariantsPanel variantsPanel;
 	private Timer searchDebounceTimer;
-	private final Timer imagePollTimer;
-	/** Repaints foil sheen during its short sweep window. */
+	/**
+	 * Debounces wiki-image load completions: restart on each visible-card arrival, then one
+	 * grid repaint after quiet. Avoids flooding the AWT queue (shared with client mouse/camera).
+	 */
+	private Timer imageRepaintDebounceTimer;
+	private final Consumer<String> imageLoadListener = this::onWikiImageLoaded;
+	/** High-rate foil sparkle/sheen repaints while foil cards are visible. */
 	private final Timer foilAnimTimer;
-	private long lastFoilSparkleRepaintMs;
 
 	private final CardLayout albumNorthLayout = new CardLayout();
 	private final JPanel albumNorthHost = new JPanel(albumNorthLayout);
@@ -143,6 +150,12 @@ public final class CollectionAlbumWindow extends JFrame
 	private final JLabel variantPagingLabel = new JLabel(" ");
 
 	private boolean albumVariantsVisible;
+
+	/** When true, {@link #setVisible(true)} runs after the first page model+images are ready. */
+	private boolean pendingShowWhenPageReady;
+
+	/** Normalized wiki URLs for cards currently shown; read from image-load threads. */
+	private volatile Set<String> visibleImageUrls = Set.of();
 
 	/** True when {@link #sendChosenInstanceId} was chosen from the variant grid (no album cell selection). */
 	private boolean sendPickFromVariantOnly;
@@ -485,64 +498,43 @@ public final class CollectionAlbumWindow extends JFrame
 
 		partyUiTimer = new Timer(2000, e ->
 		{
-			if (isShowing())
+			if (isShowing() && partyService.isInParty())
 			{
 				refreshPartyMemberCombo();
-				refreshPartyTradeUi();
+				refreshPartyTradeChrome();
 			}
 		});
 
-		imagePollTimer = new Timer(250, e ->
+		imageRepaintDebounceTimer = new Timer(IMAGE_REPAINT_DEBOUNCE_MS, e ->
 		{
 			if (!isShowing())
 			{
 				return;
 			}
-			boolean repaint = grid.needsImageLoadRepaint();
-			if (albumVariantsVisible && variantsPanel.needsImageLoadRepaint())
+			grid.refreshFacesAfterImageLoad();
+			if (albumVariantsVisible)
 			{
-				repaint = true;
+				variantsPanel.repaint();
 			}
-			if (repaint)
-			{
-				grid.repaint();
-				if (albumVariantsVisible)
-				{
-					variantsPanel.repaint();
-				}
-			}
-			updateAlbumRepaintTimers();
 		});
+		imageRepaintDebounceTimer.setRepeats(false);
+		imageCacheService.addLoadListener(imageLoadListener);
 
+		// Continuous foil animation; paint path only blits cached faces + cheap overlays.
 		foilAnimTimer = new Timer(SharedCardRenderer.FOIL_SPARKLE_FRAME_MS, e ->
 		{
 			if (!isShowing())
 			{
 				return;
 			}
-			long now = System.currentTimeMillis();
-			boolean sheen = SharedCardRenderer.isFoilSheenAnimating();
-			boolean repaintGrid = grid.hasVisibleFoilCards()
-				&& (sheen || now - lastFoilSparkleRepaintMs >= SharedCardRenderer.FOIL_SPARKLE_FRAME_MS);
-			boolean repaintVariants = albumVariantsVisible && variantsPanel.hasVisibleFoilCards()
-				&& (sheen || now - lastFoilSparkleRepaintMs >= SharedCardRenderer.FOIL_SPARKLE_FRAME_MS);
-			if (!repaintGrid && !repaintVariants)
-			{
-				return;
-			}
-			if (!sheen)
-			{
-				lastFoilSparkleRepaintMs = now;
-			}
-			if (repaintGrid)
+			if (grid.hasVisibleFoilCards())
 			{
 				grid.repaint();
 			}
-			if (repaintVariants)
+			if (albumVariantsVisible && variantsPanel.hasVisibleFoilCards())
 			{
 				variantsPanel.repaint();
 			}
-			updateAlbumRepaintTimers();
 		});
 
 		styleFrameFonts();
@@ -580,7 +572,27 @@ public final class CollectionAlbumWindow extends JFrame
 	void prepareToShow()
 	{
 		applySavedWindowSize();
-		refreshPartyTradeUi();
+		refreshPartyTradeChrome();
+	}
+
+	/**
+	 * Show the frame only after the next successful model apply (images awaited off-EDT).
+	 * Avoids overlapping first-open disk decode GC with client middle-mouse camera input.
+	 */
+	void requestShowWhenPageReady()
+	{
+		pendingShowWhenPageReady = true;
+	}
+
+	private void finishPendingShow()
+	{
+		if (!pendingShowWhenPageReady)
+		{
+			return;
+		}
+		pendingShowWhenPageReady = false;
+		setVisible(true);
+		toFront();
 	}
 
 	@Override
@@ -680,8 +692,11 @@ public final class CollectionAlbumWindow extends JFrame
 	private void stopTimers()
 	{
 		partyUiTimer.stop();
-		imagePollTimer.stop();
 		foilAnimTimer.stop();
+		if (imageRepaintDebounceTimer != null)
+		{
+			imageRepaintDebounceTimer.stop();
+		}
 		if (searchDebounceTimer != null)
 		{
 			searchDebounceTimer.stop();
@@ -694,37 +709,25 @@ public final class CollectionAlbumWindow extends JFrame
 
 	private void startTimers()
 	{
-		partyUiTimer.start();
+		if (partyService.isInParty())
+		{
+			partyUiTimer.start();
+		}
 		updateAlbumRepaintTimers();
 	}
 
-	/** Start/stop image and foil repaint timers based on whether the current view needs them. */
+	/** Start/stop continuous foil sparkle timer when foil cards are on screen. */
 	private void updateAlbumRepaintTimers()
 	{
 		if (!isShowing())
 		{
-			imagePollTimer.stop();
 			foilAnimTimer.stop();
 			return;
 		}
 
-		boolean pendingImages = grid.needsImageLoadRepaint()
-			|| (albumVariantsVisible && variantsPanel.needsImageLoadRepaint());
-		if (pendingImages)
-		{
-			if (!imagePollTimer.isRunning())
-			{
-				imagePollTimer.start();
-			}
-		}
-		else
-		{
-			imagePollTimer.stop();
-		}
-
-		boolean foilAnim = grid.hasVisibleFoilCards()
+		boolean hasFoil = grid.hasVisibleFoilCards()
 			|| (albumVariantsVisible && variantsPanel.hasVisibleFoilCards());
-		if (foilAnim)
+		if (hasFoil)
 		{
 			if (!foilAnimTimer.isRunning())
 			{
@@ -737,8 +740,99 @@ public final class CollectionAlbumWindow extends JFrame
 		}
 	}
 
+	/**
+	 * Visible wiki-image arrivals only. Repaint once when every currently shown URL has settled,
+	 * so decode bursts do not spam the AWT queue shared with client mouse/camera.
+	 */
+	private void onWikiImageLoaded(String normalizedUrl)
+	{
+		if (normalizedUrl == null || normalizedUrl.isEmpty())
+		{
+			return;
+		}
+		Set<String> visible = visibleImageUrls;
+		if (visible.isEmpty() || !visible.contains(normalizedUrl))
+		{
+			return;
+		}
+		for (String url : visible)
+		{
+			if (!imageCacheService.isSettled(url))
+			{
+				return;
+			}
+		}
+		SwingUtilities.invokeLater(() ->
+		{
+			if (!isShowing())
+			{
+				return;
+			}
+			imageRepaintDebounceTimer.restart();
+		});
+	}
+
+	private void rememberVisibleImageUrls(List<AlbumSlot> pageSlots)
+	{
+		Set<String> next = new HashSet<>();
+		if (pageSlots != null)
+		{
+			for (AlbumSlot slot : pageSlots)
+			{
+				if (slot == null || slot.card() == null || slot.card().getImageUrl() == null)
+				{
+					continue;
+				}
+				String normalized = imageCacheService.normalizeImageUrl(slot.card().getImageUrl());
+				if (!normalized.isEmpty())
+				{
+					next.add(normalized);
+				}
+			}
+		}
+		visibleImageUrls = next;
+	}
+
+	private void rememberBrowsePageImageUrls()
+	{
+		if (filteredSortedCards.isEmpty())
+		{
+			visibleImageUrls = Set.of();
+			return;
+		}
+		int from = pageIndex * PAGE_SIZE;
+		int to = Math.min(from + PAGE_SIZE, filteredSortedCards.size());
+		Set<String> next = new HashSet<>();
+		for (int i = from; i < to; i++)
+		{
+			CardDefinition c = filteredSortedCards.get(i);
+			if (c == null || c.getImageUrl() == null)
+			{
+				continue;
+			}
+			String normalized = imageCacheService.normalizeImageUrl(c.getImageUrl());
+			if (!normalized.isEmpty())
+			{
+				next.add(normalized);
+			}
+		}
+		visibleImageUrls = next;
+	}
+
+	private void rememberVariantImageUrl(CardDefinition card)
+	{
+		if (card == null || card.getImageUrl() == null)
+		{
+			visibleImageUrls = Set.of();
+			return;
+		}
+		String normalized = imageCacheService.normalizeImageUrl(card.getImageUrl());
+		visibleImageUrls = normalized.isEmpty() ? Set.of() : Set.of(normalized);
+	}
+
 	void disposeInternal()
 	{
+		imageCacheService.removeLoadListener(imageLoadListener);
 		persistWindowSize();
 		stopTimers();
 		dispose();
@@ -775,8 +869,8 @@ public final class CollectionAlbumWindow extends JFrame
 	public void refreshData()
 	{
 		cardDatabase.load();
-		List<CardDefinition> all = cardDatabase.getCards();
-		rarityTable = AlbumRarityTable.build(all);
+		// Colours are precomputed once in CardDatabase.load(); do not re-tier the catalog on the EDT.
+		rarityTable = AlbumRarityTable.fromColorByCardName(cardDatabase.displayRarityColorsByCardName());
 		tabFilters = buildTabFilters();
 		suppressCollectionComboEvents = true;
 		try
@@ -795,7 +889,6 @@ public final class CollectionAlbumWindow extends JFrame
 		{
 			suppressCollectionComboEvents = false;
 		}
-		styleFrameFonts();
 		pageIndex = 0;
 		rebuildModel();
 	}
@@ -911,6 +1004,11 @@ public final class CollectionAlbumWindow extends JFrame
 		ForkJoinPool.commonPool().execute(() ->
 		{
 			List<CardDefinition> working = computeFilteredSortedCards(inputs);
+			int pages = Math.max(1, (working.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+			int page = Math.max(0, Math.min(inputs.preservePageIndex, pages - 1));
+			int from = page * PAGE_SIZE;
+			int to = Math.min(from + PAGE_SIZE, working.size());
+			imageCacheService.preloadAndAwait(imageUrlsBetween(working, from, to), 8_000L);
 			SwingUtilities.invokeLater(() -> applyModelRebuild(gen, inputs.preservePageIndex, working));
 		});
 	}
@@ -921,8 +1019,10 @@ public final class CollectionAlbumWindow extends JFrame
 		filteredTotal = 0;
 		pageCount = 1;
 		pageIndex = 0;
+		rememberVisibleImageUrls(List.of());
 		grid.setSlots(List.of(), selectionPreserveIndex(List.of()));
 		updatePageControls(0, 0);
+		finishPendingShow();
 	}
 
 	private ModelRebuildInputs captureModelRebuildInputs(int collectionIdx)
@@ -934,7 +1034,7 @@ public final class CollectionAlbumWindow extends JFrame
 		}
 		return new ModelRebuildInputs(
 			collectionIdx,
-			new ArrayList<>(cardDatabase.getCards()),
+			cardDatabase.getCards(),
 			tabFilters,
 			rarityTable,
 			(String) rarityCombo.getSelectedItem(),
@@ -964,7 +1064,9 @@ public final class CollectionAlbumWindow extends JFrame
 		filteredTotal = working.size();
 		pageCount = Math.max(1, (filteredTotal + PAGE_SIZE - 1) / PAGE_SIZE);
 		pageIndex = Math.max(0, Math.min(preservePageIndex, pageCount - 1));
-		refreshCurrentPage();
+		// Images for this page were awaited off-EDT in scheduleModelRebuild.
+		refreshCurrentPage(true);
+		finishPendingShow();
 	}
 
 	private static List<CardDefinition> computeFilteredSortedCards(ModelRebuildInputs inputs)
@@ -1048,8 +1150,18 @@ public final class CollectionAlbumWindow extends JFrame
 	/** Updates the visible page from {@link #filteredSortedCards} without re-filtering or re-sorting. */
 	private void refreshCurrentPage()
 	{
+		refreshCurrentPage(false);
+	}
+
+	/**
+	 * @param imagesPreloaded when false, may bounce through a background preload-await so the EDT
+	 *                        paint runs with art already in memory (avoids decode GC during camera use).
+	 */
+	private void refreshCurrentPage(boolean imagesPreloaded)
+	{
 		if (filteredSortedCards.isEmpty())
 		{
+			rememberVisibleImageUrls(List.of());
 			grid.setSlots(List.of(), selectionPreserveIndex(List.of()));
 			updatePageControls(0, 0);
 			return;
@@ -1058,6 +1170,25 @@ public final class CollectionAlbumWindow extends JFrame
 		pageIndex = Math.max(0, Math.min(pageIndex, pageCount - 1));
 		int from = pageIndex * PAGE_SIZE;
 		int to = Math.min(from + PAGE_SIZE, filteredTotal);
+		List<String> pageUrls = imageUrlsBetween(filteredSortedCards, from, to);
+		if (!imagesPreloaded && pageUrls.stream().anyMatch(u -> !imageCacheService.isSettled(u)))
+		{
+			final int pageSnap = pageIndex;
+			final long gen = modelRebuildGen.get();
+			ForkJoinPool.commonPool().execute(() ->
+			{
+				imageCacheService.preloadAndAwait(pageUrls, 6_000L);
+				SwingUtilities.invokeLater(() ->
+				{
+					if (gen != modelRebuildGen.get() || pageSnap != pageIndex)
+					{
+						return;
+					}
+					refreshCurrentPage(true);
+				});
+			});
+			return;
+		}
 
 		Map<CardCollectionKey, Integer> owned = stateService.getState().getCollectionState().getOwnedCards();
 		Set<String> collected = collectedNamesFromOwned(owned);
@@ -1103,9 +1234,9 @@ public final class CollectionAlbumWindow extends JFrame
 			slots.add(new AlbumSlot(c, rarity, ownAny, displayFoil, nQty, fQty, singleTip, lockBadge, soleInstanceId,
 				offeredInTrade));
 		}
+		rememberVisibleImageUrls(slots);
 		grid.setSlots(slots, selectionPreserveIndex(slots));
 		updatePageControls(from, to);
-		preloadAround(filteredSortedCards, from, to);
 		updateAlbumRepaintTimers();
 	}
 
@@ -1147,11 +1278,15 @@ public final class CollectionAlbumWindow extends JFrame
 		return -1;
 	}
 
-	private void preloadAround(List<CardDefinition> ordered, int from, int to)
+	private static List<String> imageUrlsBetween(List<CardDefinition> ordered, int from, int to)
 	{
 		List<String> urls = new ArrayList<>();
-		int lo = Math.max(0, from - PAGE_SIZE);
-		int hi = Math.min(ordered.size(), to + PAGE_SIZE);
+		if (ordered == null)
+		{
+			return urls;
+		}
+		int lo = Math.max(0, from);
+		int hi = Math.min(ordered.size(), Math.max(lo, to));
 		for (int i = lo; i < hi; i++)
 		{
 			CardDefinition c = ordered.get(i);
@@ -1160,7 +1295,7 @@ public final class CollectionAlbumWindow extends JFrame
 				urls.add(c.getImageUrl());
 			}
 		}
-		imageCacheService.preload(urls);
+		return urls;
 	}
 
 	private static int tierSortKey(String label)
@@ -1334,6 +1469,7 @@ public final class CollectionAlbumWindow extends JFrame
 		albumNorthLayout.show(albumNorthHost, VIEW_NORTH_BROWSE);
 		albumCenterLayout.show(albumCenterHost, VIEW_ALBUM_BROWSE);
 		albumVariantsVisible = false;
+		rememberBrowsePageImageUrls();
 		grid.clearSelection();
 		sendChosenInstanceId = null;
 		sendFocusCardName = null;
@@ -1385,6 +1521,7 @@ public final class CollectionAlbumWindow extends JFrame
 		}
 		albumCenterLayout.show(albumCenterHost, VIEW_CARD_VARIANTS);
 		albumVariantsVisible = true;
+		rememberVariantImageUrl(slot.card());
 		updateAlbumRepaintTimers();
 	}
 
@@ -1511,6 +1648,7 @@ public final class CollectionAlbumWindow extends JFrame
 			.thenComparingLong(OwnedCardInstance::getPulledAtEpochMs));
 		Color rarity = rarityTable.colorForCardName(cardName);
 		CardDefinition def = cardDefinitionForName(cardName);
+		rememberVariantImageUrl(def);
 		variantsPanel.setVariants(def, rarity, copies, sendChosenInstanceId);
 		updateSouthBarButtons();
 	}
@@ -1626,6 +1764,23 @@ public final class CollectionAlbumWindow extends JFrame
 
 	void refreshPartyTradeUi()
 	{
+		refreshPartyTradeChrome();
+		if (albumVariantsVisible)
+		{
+			refreshActiveVariantCopies();
+		}
+		else
+		{
+			refreshCurrentPage();
+		}
+	}
+
+	/**
+	 * Updates trade invite/status/south-bar chrome without rebuilding album slots.
+	 * Used on open and the party poll timer so idle album viewing does not repaint the grid every 2s.
+	 */
+	private void refreshPartyTradeChrome()
+	{
 		String statusHint = cardPartyTradeService.consumePendingStatusMessage();
 		if (statusHint != null && !statusHint.isEmpty())
 		{
@@ -1643,17 +1798,12 @@ public final class CollectionAlbumWindow extends JFrame
 			acceptTradeBtn.setVisible(false);
 		}
 		variantsPanel.setOfferedInstancePredicate(cardPartyTradeService::isInstanceOfferedLocally);
-		if (albumVariantsVisible)
-		{
-			refreshActiveVariantCopies();
-		}
-		else
-		{
-			refreshCurrentPage();
-		}
 		updateSouthBarButtons();
-		acceptTradeBtn.getParent().revalidate();
-		acceptTradeBtn.getParent().repaint();
+		if (acceptTradeBtn.getParent() != null)
+		{
+			acceptTradeBtn.getParent().revalidate();
+			acceptTradeBtn.getParent().repaint();
+		}
 	}
 
 	private void showTemporaryStatus(String message)
