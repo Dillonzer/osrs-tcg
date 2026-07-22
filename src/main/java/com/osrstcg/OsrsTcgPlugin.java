@@ -84,7 +84,9 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.ChatInput;
+import net.runelite.client.events.OverlayMenuClicked;
 import net.runelite.client.events.RuneScapeProfileChanged;
+import net.runelite.client.ui.overlay.OverlayMenuEntry;
 import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.party.PartyMember;
 import net.runelite.client.party.PartyService;
@@ -662,6 +664,31 @@ public class OsrsTcgPlugin extends Plugin
 		});
 	}
 
+	@Subscribe
+	public void onOverlayMenuClicked(OverlayMenuClicked event)
+	{
+		if (event.getOverlay() != creditsInfoboxOverlay)
+		{
+			return;
+		}
+
+		OverlayMenuEntry entry = event.getEntry();
+		if (entry == null || !CreditsInfoboxOverlay.MENU_OPTION_OPEN.equals(entry.getOption()))
+		{
+			return;
+		}
+
+		String target = entry.getTarget();
+		for (BoosterPackDefinition booster : packCatalog.getVisibleBoosters(stateService.isDebugLogging()))
+		{
+			if (CreditsInfoboxOverlay.packMenuTarget(booster).equals(target))
+			{
+				openBooster(booster, false);
+				return;
+			}
+		}
+	}
+
 	private void handleOpenFirstBoosterCommand(boolean forcedApex)
 	{
 		List<BoosterPackDefinition> visibleBoosters = packCatalog.getVisibleBoosters(stateService.isDebugLogging());
@@ -671,12 +698,28 @@ public class OsrsTcgPlugin extends Plugin
 			return;
 		}
 
+		openBooster(visibleBoosters.get(0), forcedApex);
+	}
+
+	private void openBooster(BoosterPackDefinition booster, boolean forcedApex)
+	{
+		if (booster == null)
+		{
+			return;
+		}
+		if (packRevealService.isActive())
+		{
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+				"[OSRS TCG] Finish the current pack reveal first.", null);
+			return;
+		}
+
 		tcgPanel.beginPackRevealSidebarFreeze();
 		HashSet<CardCollectionKey> preOwned = new HashSet<>(stateService.getState().getCollectionState().getOwnedCards().keySet());
 		boolean showScrollWheelHint = stateService.getState().getEconomyState().getOpenedPacks() == 0L;
 		var result = forcedApex
-			? packOpeningService.buyAndOpenApexPackForDebug(visibleBoosters.get(0))
-			: packOpeningService.buyAndOpenPack(visibleBoosters.get(0));
+			? packOpeningService.buyAndOpenApexPackForDebug(booster)
+			: packOpeningService.buyAndOpenPack(booster);
 		if (!result.isSuccess())
 		{
 			tcgPanel.clearPackRevealSidebarFreeze();
