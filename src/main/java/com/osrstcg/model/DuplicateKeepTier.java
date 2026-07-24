@@ -2,7 +2,6 @@ package com.osrstcg.model;
 
 import com.osrstcg.service.RarityMath;
 
-/** Minimum display tier for pack-pull chat / Dink notifications (this tier and higher). */
 public enum DuplicateKeepTier
 {
     NONE(null),
@@ -29,7 +28,7 @@ public enum DuplicateKeepTier
 	public String displayLabel()
 	{
         if(tier == null) return "None";
-        
+
 		return tier.getLabel();
 	}
 
